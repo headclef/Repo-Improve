@@ -147,40 +147,37 @@ public static class SaveData
 
     // ── Stat Application ──
 
-    /// <summary>Apply all allocated stats via PunManager.UpdateStat.</summary>
+    /// <summary>Apply all allocated stats via PunManager.UpdateStat. Preserves shop items.</summary>
     public static void ApplyStats(bool force = false)
     {
         if (PlayerController.instance == null) return;
 
         string steamId = PlayerController.instance.playerSteamID;
 
-        if (!force)
+        Improve.Logger.LogDebug("Applying Improve stats...");
+        
+        // Fetch existing upgrades so we don't overwrite shop-bought items.
+        // If null, we just assume 0 for the base.
+        var dict = StatsManager.instance.FetchPlayerUpgrades(steamId);
+        
+        int GetBase(string key)
         {
-            var upgrades = StatsManager.instance.FetchPlayerUpgrades(steamId);
-            if (upgrades != null && upgrades.Values.GetEnumerator().MoveNext())
-            {
-                // Check if any values are non-zero
-                bool hasValues = false;
-                foreach (var v in upgrades.Values) { if (v != 0) { hasValues = true; break; } }
-                if (hasValues) return;
-            }
+            return dict != null && dict.TryGetValue(key, out int val) ? val : 0;
         }
 
-        Improve.Logger.LogDebug("Applying Improve stats...");
-
-        PunManager.instance.UpdateStat("playerUpgradeHealth", steamId, AllocHealth.Value);
-        PunManager.instance.UpdateStat("playerUpgradeSpeed", steamId, AllocSpeed.Value);
-        PunManager.instance.UpdateStat("playerUpgradeStamina", steamId, AllocStamina.Value);
-        PunManager.instance.UpdateStat("playerUpgradeExtraJump", steamId, AllocExtraJump.Value);
-        PunManager.instance.UpdateStat("playerUpgradeRange", steamId, AllocGrabRange.Value);
-        PunManager.instance.UpdateStat("playerUpgradeStrength", steamId, AllocGrabStrength.Value);
-        PunManager.instance.UpdateStat("playerUpgradeThrow", steamId, AllocGrabThrow.Value);
-        PunManager.instance.UpdateStat("playerUpgradeLaunch", steamId, AllocTumbleLaunch.Value);
-        PunManager.instance.UpdateStat("playerUpgradeTumbleClimb", steamId, AllocTumbleClimb.Value);
-        PunManager.instance.UpdateStat("playerUpgradeTumbleWings", steamId, AllocTumbleWings.Value);
-        PunManager.instance.UpdateStat("playerUpgradeCrouchRest", steamId, AllocCrouchRest.Value);
-        PunManager.instance.UpdateStat("playerUpgradeMapPlayerCount", steamId, AllocMapPlayerCount.Value);
-        PunManager.instance.UpdateStat("playerUpgradeDeathHeadBattery", steamId, AllocDeathHeadBattery.Value);
+        PunManager.instance.UpdateStat("playerUpgradeHealth", steamId, GetBase("playerUpgradeHealth") + AllocHealth.Value);
+        PunManager.instance.UpdateStat("playerUpgradeSpeed", steamId, GetBase("playerUpgradeSpeed") + AllocSpeed.Value);
+        PunManager.instance.UpdateStat("playerUpgradeStamina", steamId, GetBase("playerUpgradeStamina") + AllocStamina.Value);
+        PunManager.instance.UpdateStat("playerUpgradeExtraJump", steamId, GetBase("playerUpgradeExtraJump") + AllocExtraJump.Value);
+        PunManager.instance.UpdateStat("playerUpgradeRange", steamId, GetBase("playerUpgradeRange") + AllocGrabRange.Value);
+        PunManager.instance.UpdateStat("playerUpgradeStrength", steamId, GetBase("playerUpgradeStrength") + AllocGrabStrength.Value);
+        PunManager.instance.UpdateStat("playerUpgradeThrow", steamId, GetBase("playerUpgradeThrow") + AllocGrabThrow.Value);
+        PunManager.instance.UpdateStat("playerUpgradeLaunch", steamId, GetBase("playerUpgradeLaunch") + AllocTumbleLaunch.Value);
+        PunManager.instance.UpdateStat("playerUpgradeTumbleClimb", steamId, GetBase("playerUpgradeTumbleClimb") + AllocTumbleClimb.Value);
+        PunManager.instance.UpdateStat("playerUpgradeTumbleWings", steamId, GetBase("playerUpgradeTumbleWings") + AllocTumbleWings.Value);
+        PunManager.instance.UpdateStat("playerUpgradeCrouchRest", steamId, GetBase("playerUpgradeCrouchRest") + AllocCrouchRest.Value);
+        PunManager.instance.UpdateStat("playerUpgradeMapPlayerCount", steamId, GetBase("playerUpgradeMapPlayerCount") + AllocMapPlayerCount.Value);
+        PunManager.instance.UpdateStat("playerUpgradeDeathHeadBattery", steamId, GetBase("playerUpgradeDeathHeadBattery") + AllocDeathHeadBattery.Value);
 
         Improve.Logger.LogInfo($"Improve stats applied (Level {CurrentLevel()}, {TotalSpent()} spent, {AvailablePoints()} available).");
     }

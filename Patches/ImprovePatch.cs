@@ -55,7 +55,7 @@ internal static class StatApplyPatch
     [HarmonyPostfix]
     private static void PlayerAdd_Postfix(string _steamID)
     {
-        if (!SemiFunc.IsMasterClientOrSingleplayer() || !SemiFunc.RunIsLevel())
+        if (!SemiFunc.RunIsLevel())
             return;
         if (_steamID != PlayerAvatar.instance.steamID)
             return;
