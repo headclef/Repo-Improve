@@ -1,6 +1,4 @@
-using System.Collections;
 using HarmonyLib;
-using UnityEngine;
 
 namespace Improve.Patches;
 
@@ -34,6 +32,10 @@ internal static class HaulTrackerPatch
     {
         if (!SemiFunc.RunIsLevel()) return;
 
+        // Remove Improve allocations so the game carries clean stats
+        // to the next level/shop — prevents compounding across levels
+        SaveData.RemoveStats();
+
         int currentRunHaul = StatsManager.instance.GetRunStatTotalHaul();
         int delta = currentRunHaul - _haulAtLevelStart;
 
@@ -49,7 +51,9 @@ internal static class HaulTrackerPatch
 internal static class StatApplyPatch
 {
     /// <summary>
-    /// Apply stats 0.25s after entering a level — runs early before other mods.
+    /// Apply stats immediately during the player setup window.
+    /// Proper Upgrades has already captured the clean base (Priority.First),
+    /// so ApplyStats reads from there and adds Improve allocations on top.
     /// </summary>
     [HarmonyPatch(typeof(StatsManager), nameof(StatsManager.PlayerAdd))]
     [HarmonyPostfix]
@@ -60,12 +64,13 @@ internal static class StatApplyPatch
         if (_steamID != PlayerAvatar.instance.steamID)
             return;
 
-        Improve.Logger.LogDebug("Player data added — scheduling stat apply...");
-        Object.FindObjectOfType<MonoBehaviour>().StartCoroutine(DelayedApply());
+        Improve.Logger.LogDebug("Player data added — applying stats...");
+        SaveData.ApplyStats();
     }
 
     /// <summary>
     /// Re-apply after network sync to persist through data overwrites.
+    /// Proper Upgrades base is constant per level, so this is always idempotent.
     /// </summary>
     [HarmonyPatch(typeof(PunManager), nameof(PunManager.ReceiveSyncData))]
     [HarmonyPostfix]
@@ -73,12 +78,6 @@ internal static class StatApplyPatch
     {
         if (!finalChunk) return;
         Improve.Logger.LogDebug("Sync complete — re-applying stats...");
-        SaveData.ApplyStats();
-    }
-
-    private static IEnumerator DelayedApply()
-    {
-        yield return new WaitForSeconds(0.25f);
         SaveData.ApplyStats();
     }
 }

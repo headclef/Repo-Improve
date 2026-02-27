@@ -147,23 +147,23 @@ public static class SaveData
 
     // ── Stat Application ──
 
-    /// <summary>Apply all allocated stats via PunManager.UpdateStat. Preserves shop items.</summary>
-    public static void ApplyStats(bool force = false)
+    /// <summary>
+    /// Apply allocated stats via PunManager.UpdateStat, preserving shop-bought items.
+    /// Reads the clean base from Proper Upgrades (captured at PlayerAdd with Priority.First,
+    /// before any mod modifications). Adds Improve allocations on top.
+    /// Always idempotent: base from Proper Upgrades is constant per level, alloc is constant
+    /// per config → same result every call.
+    /// </summary>
+    public static void ApplyStats()
     {
         if (PlayerController.instance == null) return;
 
         string steamId = PlayerController.instance.playerSteamID;
 
-        Improve.Logger.LogDebug("Applying Improve stats...");
-        
-        // Fetch existing upgrades so we don't overwrite shop-bought items.
-        // If null, we just assume 0 for the base.
-        var dict = StatsManager.instance.FetchPlayerUpgrades(steamId);
-        
-        int GetBase(string key)
-        {
-            return dict != null && dict.TryGetValue(key, out int val) ? val : 0;
-        }
+        // Get the clean base stats captured by Proper Upgrades at PlayerAdd time
+        var baseStats = Proper_Upgrades.ProperUpgrades.GetUpgrades(steamId);
+
+        int GetBase(string key) => baseStats.TryGetValue(key, out int val) ? val : 0;
 
         PunManager.instance.UpdateStat("playerUpgradeHealth", steamId, GetBase("playerUpgradeHealth") + AllocHealth.Value);
         PunManager.instance.UpdateStat("playerUpgradeSpeed", steamId, GetBase("playerUpgradeSpeed") + AllocSpeed.Value);
@@ -180,5 +180,37 @@ public static class SaveData
         PunManager.instance.UpdateStat("playerUpgradeDeathHeadBattery", steamId, GetBase("playerUpgradeDeathHeadBattery") + AllocDeathHeadBattery.Value);
 
         Improve.Logger.LogInfo($"Improve stats applied (Level {CurrentLevel()}, {TotalSpent()} spent, {AvailablePoints()} available).");
+    }
+
+    /// <summary>
+    /// Remove Improve allocations by restoring each stat to its Proper Upgrades base value.
+    /// Called at level end (OnSceneSwitch) so the game carries clean stats forward
+    /// to the next level/shop — prevents compounding across levels.
+    /// </summary>
+    public static void RemoveStats()
+    {
+        if (PlayerController.instance == null) return;
+
+        string steamId = PlayerController.instance.playerSteamID;
+
+        var baseStats = Proper_Upgrades.ProperUpgrades.GetUpgrades(steamId);
+
+        int GetBase(string key) => baseStats.TryGetValue(key, out int val) ? val : 0;
+
+        PunManager.instance.UpdateStat("playerUpgradeHealth", steamId, GetBase("playerUpgradeHealth"));
+        PunManager.instance.UpdateStat("playerUpgradeSpeed", steamId, GetBase("playerUpgradeSpeed"));
+        PunManager.instance.UpdateStat("playerUpgradeStamina", steamId, GetBase("playerUpgradeStamina"));
+        PunManager.instance.UpdateStat("playerUpgradeExtraJump", steamId, GetBase("playerUpgradeExtraJump"));
+        PunManager.instance.UpdateStat("playerUpgradeRange", steamId, GetBase("playerUpgradeRange"));
+        PunManager.instance.UpdateStat("playerUpgradeStrength", steamId, GetBase("playerUpgradeStrength"));
+        PunManager.instance.UpdateStat("playerUpgradeThrow", steamId, GetBase("playerUpgradeThrow"));
+        PunManager.instance.UpdateStat("playerUpgradeLaunch", steamId, GetBase("playerUpgradeLaunch"));
+        PunManager.instance.UpdateStat("playerUpgradeTumbleClimb", steamId, GetBase("playerUpgradeTumbleClimb"));
+        PunManager.instance.UpdateStat("playerUpgradeTumbleWings", steamId, GetBase("playerUpgradeTumbleWings"));
+        PunManager.instance.UpdateStat("playerUpgradeCrouchRest", steamId, GetBase("playerUpgradeCrouchRest"));
+        PunManager.instance.UpdateStat("playerUpgradeMapPlayerCount", steamId, GetBase("playerUpgradeMapPlayerCount"));
+        PunManager.instance.UpdateStat("playerUpgradeDeathHeadBattery", steamId, GetBase("playerUpgradeDeathHeadBattery"));
+
+        Improve.Logger.LogDebug("Improve stats removed — base stats restored.");
     }
 }
