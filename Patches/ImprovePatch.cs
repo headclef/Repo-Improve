@@ -1,4 +1,6 @@
+using System.Collections;
 using HarmonyLib;
+using UnityEngine;
 
 namespace Improve.Patches;
 
@@ -24,17 +26,12 @@ internal static class HaulTrackerPatch
     /// <summary>
     /// Capture haul delta when leaving a level.
     /// Only the haul earned during THIS level is added to lifetime total.
-    /// This prevents getting credit for haul earned before you joined (MP).
     /// </summary>
     [HarmonyPatch(typeof(SemiFunc), nameof(SemiFunc.OnSceneSwitch))]
     [HarmonyPrefix]
     private static void OnSceneSwitch_Prefix()
     {
         if (!SemiFunc.RunIsLevel()) return;
-
-        // Remove Improve allocations so the game carries clean stats
-        // to the next level/shop — prevents compounding across levels
-        SaveData.RemoveStats();
 
         int currentRunHaul = StatsManager.instance.GetRunStatTotalHaul();
         int delta = currentRunHaul - _haulAtLevelStart;
@@ -50,34 +47,109 @@ internal static class HaulTrackerPatch
 [HarmonyPatch]
 internal static class StatApplyPatch
 {
+    private static Coroutine? _watchdog;
+
     /// <summary>
-    /// Apply stats immediately during the player setup window.
-    /// Proper Upgrades has already captured the clean base (Priority.First),
-    /// so ApplyStats reads from there and adds Improve allocations on top.
+    /// When the player is added to a level, defer initial application
+    /// and start the watchdog coroutine.
     /// </summary>
     [HarmonyPatch(typeof(StatsManager), nameof(StatsManager.PlayerAdd))]
     [HarmonyPostfix]
     private static void PlayerAdd_Postfix(string _steamID)
     {
-        if (!SemiFunc.RunIsLevel())
-            return;
-        if (_steamID != PlayerAvatar.instance.steamID)
-            return;
+        if (!SemiFunc.RunIsLevel()) return;
+        if (_steamID != PlayerAvatar.instance.steamID) return;
 
-        Improve.Logger.LogDebug("Player data added — applying stats...");
-        SaveData.ApplyStats();
+        SaveData._appliedBase.Clear();
+        Improve.Logger.LogDebug("Player data added — deferring Improve stat application...");
+        Improve.Instance.StartCoroutine(DeferredApply());
+        StartWatchdog();
     }
 
     /// <summary>
-    /// Re-apply after network sync to persist through data overwrites.
-    /// Proper Upgrades base is constant per level, so this is always idempotent.
+    /// After a network sync completes, external data may have overwritten
+    /// our local stat values. Immediately enforce our allocations.
     /// </summary>
     [HarmonyPatch(typeof(PunManager), nameof(PunManager.ReceiveSyncData))]
     [HarmonyPostfix]
     private static void ReceiveSyncData_Postfix(bool finalChunk)
     {
         if (!finalChunk) return;
-        Improve.Logger.LogDebug("Sync complete — re-applying stats...");
+        if (!SemiFunc.RunIsLevel()) return;
+
+        if (SaveData._appliedBase.Count > 0)
+        {
+            // Our allocations were applied before sync — enforce them.
+            Improve.Logger.LogDebug("Sync complete — enforcing Improve allocations...");
+            SaveData.EnforceStats();
+        }
+        else
+        {
+            // Haven't applied yet, defer.
+            Improve.Logger.LogDebug("Sync complete, not yet applied — deferring...");
+            Improve.Instance.StartCoroutine(DeferredApply());
+        }
+    }
+
+    /// <summary>
+    /// Stop the watchdog when leaving a level.
+    /// No need to "remove" stats — writes are local-only and PlayerAdd
+    /// resets everything to 0 on next level anyway.
+    /// </summary>
+    [HarmonyPatch(typeof(SemiFunc), nameof(SemiFunc.OnSceneSwitch))]
+    [HarmonyPrefix]
+    private static void OnSceneSwitch_Prefix()
+    {
+        if (!SemiFunc.RunIsLevel()) return;
+        StopWatchdog();
+        SaveData._appliedBase.Clear();
+    }
+
+    /// <summary>
+    /// Wait a few frames for the game, host sync, and other mods to finish
+    /// setting base stat values, then layer Improve allocations on top.
+    /// </summary>
+    private static IEnumerator DeferredApply()
+    {
+        yield return null;
+        yield return null;
+        yield return null; // 3 frames — give host sync and stat-sharing mods time
+
+        if (!SemiFunc.RunIsLevel()) yield break;
         SaveData.ApplyStats();
+    }
+
+    /// <summary>
+    /// Starts a watchdog coroutine that periodically checks whether external
+    /// forces (host sync, stat-sharing mods, etc.) have overwritten our local
+    /// stat allocations. If so, it re-derives the base and re-applies.
+    /// </summary>
+    private static void StartWatchdog()
+    {
+        StopWatchdog();
+        _watchdog = Improve.Instance.StartCoroutine(WatchdogLoop());
+    }
+
+    private static void StopWatchdog()
+    {
+        if (_watchdog != null)
+        {
+            Improve.Instance.StopCoroutine(_watchdog);
+            _watchdog = null;
+        }
+    }
+
+    private static IEnumerator WatchdogLoop()
+    {
+        // Wait for initial apply to settle
+        yield return new WaitForSeconds(1f);
+
+        while (SemiFunc.RunIsLevel())
+        {
+            SaveData.EnforceStats();
+            yield return new WaitForSeconds(0.5f);
+        }
+
+        _watchdog = null;
     }
 }

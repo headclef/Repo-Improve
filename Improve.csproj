@@ -36,12 +36,4 @@
     <PackageReference Include="Nickklmao-MenuLib" Version="2.*" />
   </ItemGroup>
 
-  <!-- Reference to Proper Upgrades mod (compile-only, not bundled) -->
-  <ItemGroup>
-    <Reference Include="Proper Upgrades">
-      <HintPath>..\Proper Upgrades\bin\Debug\netstandard2.1\Proper Upgrades.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-  </ItemGroup>
-
 </Project>

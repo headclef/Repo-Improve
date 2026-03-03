@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using BepInEx.Configuration;
 using UnityEngine;
 
@@ -147,70 +149,161 @@ public static class SaveData
 
     // ── Stat Application ──
 
+    /// <summary>Map stat name → current Improve allocation for that stat.</summary>
+    internal static int GetAllocationForStat(string statName) => statName switch
+    {
+        "playerUpgradeHealth" => AllocHealth.Value,
+        "playerUpgradeSpeed" => AllocSpeed.Value,
+        "playerUpgradeStamina" => AllocStamina.Value,
+        "playerUpgradeExtraJump" => AllocExtraJump.Value,
+        "playerUpgradeRange" => AllocGrabRange.Value,
+        "playerUpgradeStrength" => AllocGrabStrength.Value,
+        "playerUpgradeThrow" => AllocGrabThrow.Value,
+        "playerUpgradeLaunch" => AllocTumbleLaunch.Value,
+        "playerUpgradeTumbleClimb" => AllocTumbleClimb.Value,
+        "playerUpgradeTumbleWings" => AllocTumbleWings.Value,
+        "playerUpgradeCrouchRest" => AllocCrouchRest.Value,
+        "playerUpgradeMapPlayerCount" => AllocMapPlayerCount.Value,
+        "playerUpgradeDeathHeadBattery" => AllocDeathHeadBattery.Value,
+        _ => 0
+    };
+
+    internal static readonly string[] AllStatNames =
+    {
+        "playerUpgradeHealth", "playerUpgradeSpeed", "playerUpgradeStamina",
+        "playerUpgradeExtraJump", "playerUpgradeRange", "playerUpgradeStrength",
+        "playerUpgradeThrow", "playerUpgradeLaunch", "playerUpgradeTumbleClimb",
+        "playerUpgradeTumbleWings", "playerUpgradeCrouchRest",
+        "playerUpgradeMapPlayerCount", "playerUpgradeDeathHeadBattery"
+    };
+
+    // ── Cached reflection handles for StatsManager dictionaries ──
+    private static readonly Dictionary<string, FieldInfo> _dictFields = new();
+
+    private static Dictionary<string, int>? GetStatDict(string statName)
+    {
+        if (!_dictFields.TryGetValue(statName, out var fi))
+        {
+            fi = typeof(StatsManager).GetField(statName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            _dictFields[statName] = fi!;
+        }
+
+        return fi?.GetValue(StatsManager.instance) as Dictionary<string, int>;
+    }
+
     /// <summary>
-    /// Apply allocated stats via PunManager.UpdateStat, preserving shop-bought items.
-    /// Reads the clean base from Proper Upgrades (captured at PlayerAdd with Priority.First,
-    /// before any mod modifications). Adds Improve allocations on top.
-    /// Always idempotent: base from Proper Upgrades is constant per level, alloc is constant
-    /// per config → same result every call.
+    /// Read a single stat value directly from StatsManager dictionaries (no network).
+    /// </summary>
+    private static int ReadStatLocal(string statName, string steamId)
+    {
+        var dict = GetStatDict(statName);
+        if (dict != null && dict.TryGetValue(steamId, out int val))
+            return val;
+        return 0;
+    }
+
+    /// <summary>
+    /// Write a single stat value directly into StatsManager dictionaries.
+    /// LOCAL-ONLY — no network broadcast. This avoids the host (or its mods)
+    /// seeing our value and overwriting it back.
+    /// </summary>
+    private static void WriteStatLocal(string statName, string steamId, int value)
+    {
+        var dict = GetStatDict(statName);
+        if (dict != null)
+            dict[steamId] = value;
+    }
+
+    // ── Tracking applied base values ──
+    // After applying, _appliedBase[stat] = the base (pre-Improve) value we saw.
+    // This lets the watchdog distinguish "external wipe" from "shop upgrade".
+    internal static readonly Dictionary<string, int> _appliedBase = new();
+
+    /// <summary>
+    /// Apply Improve allocations on top of whatever the game currently reports.
+    /// Writes directly to StatsManager dictionaries (local-only, no network).
     /// </summary>
     public static void ApplyStats()
     {
         if (PlayerController.instance == null) return;
+        if (StatsManager.instance == null) return;
 
         string steamId = PlayerController.instance.playerSteamID;
 
-        // Get the clean base stats captured by Proper Upgrades at PlayerAdd time
-        var baseStats = Proper_Upgrades.ProperUpgrades.GetUpgrades(steamId);
+        _appliedBase.Clear();
 
-        int GetBase(string key) => baseStats.TryGetValue(key, out int val) ? val : 0;
+        foreach (string stat in AllStatNames)
+        {
+            int alloc = GetAllocationForStat(stat);
+            int cur = ReadStatLocal(stat, steamId);
 
-        PunManager.instance.UpdateStat("playerUpgradeHealth", steamId, GetBase("playerUpgradeHealth") + AllocHealth.Value);
-        PunManager.instance.UpdateStat("playerUpgradeSpeed", steamId, GetBase("playerUpgradeSpeed") + AllocSpeed.Value);
-        PunManager.instance.UpdateStat("playerUpgradeStamina", steamId, GetBase("playerUpgradeStamina") + AllocStamina.Value);
-        PunManager.instance.UpdateStat("playerUpgradeExtraJump", steamId, GetBase("playerUpgradeExtraJump") + AllocExtraJump.Value);
-        PunManager.instance.UpdateStat("playerUpgradeRange", steamId, GetBase("playerUpgradeRange") + AllocGrabRange.Value);
-        PunManager.instance.UpdateStat("playerUpgradeStrength", steamId, GetBase("playerUpgradeStrength") + AllocGrabStrength.Value);
-        PunManager.instance.UpdateStat("playerUpgradeThrow", steamId, GetBase("playerUpgradeThrow") + AllocGrabThrow.Value);
-        PunManager.instance.UpdateStat("playerUpgradeLaunch", steamId, GetBase("playerUpgradeLaunch") + AllocTumbleLaunch.Value);
-        PunManager.instance.UpdateStat("playerUpgradeTumbleClimb", steamId, GetBase("playerUpgradeTumbleClimb") + AllocTumbleClimb.Value);
-        PunManager.instance.UpdateStat("playerUpgradeTumbleWings", steamId, GetBase("playerUpgradeTumbleWings") + AllocTumbleWings.Value);
-        PunManager.instance.UpdateStat("playerUpgradeCrouchRest", steamId, GetBase("playerUpgradeCrouchRest") + AllocCrouchRest.Value);
-        PunManager.instance.UpdateStat("playerUpgradeMapPlayerCount", steamId, GetBase("playerUpgradeMapPlayerCount") + AllocMapPlayerCount.Value);
-        PunManager.instance.UpdateStat("playerUpgradeDeathHeadBattery", steamId, GetBase("playerUpgradeDeathHeadBattery") + AllocDeathHeadBattery.Value);
+            // Record the base before we add
+            _appliedBase[stat] = cur;
 
-        Improve.Logger.LogInfo($"Improve stats applied (Level {CurrentLevel()}, {TotalSpent()} spent, {AvailablePoints()} available).");
+            if (alloc <= 0) continue;
+            WriteStatLocal(stat, steamId, cur + alloc);
+        }
+
+        Improve.Logger.LogInfo($"Improve stats applied locally (Level {CurrentLevel()}, {TotalSpent()} spent, {AvailablePoints()} available).");
     }
 
     /// <summary>
-    /// Remove Improve allocations by restoring each stat to its Proper Upgrades base value.
-    /// Called at level end (OnSceneSwitch) so the game carries clean stats forward
-    /// to the next level/shop — prevents compounding across levels.
+    /// Check if any external force (host sync, stat-sharing mod) has overwritten
+    /// our local stat values. If the current value for any allocated stat differs
+    /// from (base + alloc), an external change happened — re-derive base and re-apply.
+    /// Returns true if a re-apply was needed.
     /// </summary>
-    public static void RemoveStats()
+    public static bool EnforceStats()
     {
-        if (PlayerController.instance == null) return;
+        if (PlayerController.instance == null) return false;
+        if (StatsManager.instance == null) return false;
+        if (_appliedBase.Count == 0) return false;
 
         string steamId = PlayerController.instance.playerSteamID;
+        bool dirty = false;
 
-        var baseStats = Proper_Upgrades.ProperUpgrades.GetUpgrades(steamId);
+        foreach (string stat in AllStatNames)
+        {
+            int alloc = GetAllocationForStat(stat);
+            int cur = ReadStatLocal(stat, steamId);
+            int expectedBase = _appliedBase.TryGetValue(stat, out int b) ? b : 0;
+            int expected = expectedBase + alloc;
 
-        int GetBase(string key) => baseStats.TryGetValue(key, out int val) ? val : 0;
+            if (cur == expected) continue;
 
-        PunManager.instance.UpdateStat("playerUpgradeHealth", steamId, GetBase("playerUpgradeHealth"));
-        PunManager.instance.UpdateStat("playerUpgradeSpeed", steamId, GetBase("playerUpgradeSpeed"));
-        PunManager.instance.UpdateStat("playerUpgradeStamina", steamId, GetBase("playerUpgradeStamina"));
-        PunManager.instance.UpdateStat("playerUpgradeExtraJump", steamId, GetBase("playerUpgradeExtraJump"));
-        PunManager.instance.UpdateStat("playerUpgradeRange", steamId, GetBase("playerUpgradeRange"));
-        PunManager.instance.UpdateStat("playerUpgradeStrength", steamId, GetBase("playerUpgradeStrength"));
-        PunManager.instance.UpdateStat("playerUpgradeThrow", steamId, GetBase("playerUpgradeThrow"));
-        PunManager.instance.UpdateStat("playerUpgradeLaunch", steamId, GetBase("playerUpgradeLaunch"));
-        PunManager.instance.UpdateStat("playerUpgradeTumbleClimb", steamId, GetBase("playerUpgradeTumbleClimb"));
-        PunManager.instance.UpdateStat("playerUpgradeTumbleWings", steamId, GetBase("playerUpgradeTumbleWings"));
-        PunManager.instance.UpdateStat("playerUpgradeCrouchRest", steamId, GetBase("playerUpgradeCrouchRest"));
-        PunManager.instance.UpdateStat("playerUpgradeMapPlayerCount", steamId, GetBase("playerUpgradeMapPlayerCount"));
-        PunManager.instance.UpdateStat("playerUpgradeDeathHeadBattery", steamId, GetBase("playerUpgradeDeathHeadBattery"));
+            // Something changed this stat externally.
+            // Derive the new base: whatever the current value is minus our alloc
+            // (if our alloc is still present) or just the raw current value.
+            int newBase;
+            if (cur < expected)
+            {
+                // Stat decreased → our allocation was (partially or fully) wiped.
+                // Treat current value as the new base.
+                newBase = cur;
+            }
+            else
+            {
+                // Stat increased beyond expected → something added on top (shop buy).
+                // New base = current minus our allocation.
+                newBase = cur - alloc;
+            }
 
-        Improve.Logger.LogDebug("Improve stats removed — base stats restored.");
+            _appliedBase[stat] = newBase;
+            dirty = true;
+
+            if (alloc > 0)
+            {
+                int newTotal = newBase + alloc;
+                WriteStatLocal(stat, steamId, newTotal);
+            }
+        }
+
+        if (dirty)
+        {
+            Improve.Logger.LogDebug("Watchdog: detected external stat change — re-applied allocations locally.");
+        }
+
+        return dirty;
     }
 }

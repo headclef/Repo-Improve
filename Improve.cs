@@ -7,7 +7,6 @@ using UnityEngine;
 namespace Improve;
 
 [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
-[BepInDependency("headclef.ProperUpgrades")]
 public class Improve : BaseUnityPlugin
 {
     private const string PluginGuid = "headclef.Improve";
