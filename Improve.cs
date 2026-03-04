@@ -11,7 +11,7 @@ public class Improve : BaseUnityPlugin
 {
     private const string PluginGuid = "headclef.Improve";
     private const string PluginName = "Improve";
-    private const string PluginVersion = "1.0.2";
+    private const string PluginVersion = "1.0.3";
 
     internal static Improve Instance { get; private set; } = null!;
     internal new static ManualLogSource Logger => Instance._logger;
