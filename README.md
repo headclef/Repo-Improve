@@ -1,6 +1,6 @@
 # Improve
 
-![Improve Mod Menu](screenshots/Ekran%20-%20Mod%20Menu.png)
+![Improve Mod Menu](https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20Mod%20Menu.png)
 
 A [BepInEx](https://github.com/BepInEx/BepInEx) mod for **R.E.P.O.** that adds a haul-based leveling system with spendable stat points.
 
@@ -49,8 +49,8 @@ Each level awards **1 stat point** to spend on any stat you want.
 Open the **Improve** menu (available in main menu, escape menu, and lobby) to see two panels:
 
 <p align="center">
-  <img src="screenshots/Ekran%20-%20Main%20Menu%201.png" width="48%" alt="Main Menu Integration" />
-  <img src="screenshots/Ekran%20-%20Main%20Menu%202.png" width="48%" alt="Main Menu Active" />
+  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20Main%20Menu%201.png" width="48%" alt="Main Menu Integration" />
+  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20Main%20Menu%202.png" width="48%" alt="Main Menu Active" />
 </p>
 
 **Left panel — Progress:**
@@ -61,8 +61,8 @@ Open the **Improve** menu (available in main menu, escape menu, and lobby) to se
 - Current difficulty
 
 <p align="center">
-  <img src="screenshots/Panel%20-%20Upgrades.png" width="48%" alt="Progress Panel" />
-  <img src="screenshots/Ekran%20-%20Skill%20Pane.png" width="48%" alt="Skill Pane" />
+  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Panel%20-%20Upgrades.png" width="48%" alt="Progress Panel" />
+  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20Skill%20Pane.png" width="48%" alt="Skill Pane" />
 </p>
 
 **Right panel — Skills:**
@@ -106,7 +106,7 @@ Save data is stored separately at:
 3. Launch the game — save file is created automatically.
 4. Open the **Improve** button in the main menu to start spending points.
 
-![First Launch](screenshots/Ekran%20-%20First%20Launch.png)
+![First Launch](https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20First%20Launch.png)
 
 ## Multiplayer
 
