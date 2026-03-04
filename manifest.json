@@ -1,6 +1,6 @@
 {
     "name": "Improve",
-    "version_number": "1.0.1",
+    "version_number": "1.0.2",
     "website_url": "https://github.com/headclef/Repo-Improve",
     "description": "A leveling system that awards stat points from haul progression with doubling costs and configurable difficulty for R.E.P.O.",
     "dependencies": [
