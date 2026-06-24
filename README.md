@@ -21,15 +21,17 @@ This lets you **level up during a save**, not just after dying.
 
 ### Leveling Formula
 
-**Cost doubles each level:** `baseCost × 2^(level-1) × difficulty`
+**Haul to reach level N:** `baseCost × difficulty × N²`
+
+Your level is the highest **N** whose threshold your lifetime haul has reached — i.e. `level = floor(sqrt(lifetimeHaul / (baseCost × difficulty)))`. Each level is a **single threshold**, not a running total: reaching level 4 needs the level-4 haul, not the sum of levels 1–4.
 
 | Level | Hardest (×1.0) | Hard (×0.75) | Standard (×0.5) | Easy (×0.25) |
 |-------|----------------|--------------|-----------------|--------------|
 | 1     | 1,000,000      | 750,000      | 500,000         | 250,000      |
-| 2     | 2,000,000      | 1,500,000    | 1,000,000       | 500,000      |
-| 3     | 4,000,000      | 3,000,000    | 2,000,000       | 1,000,000    |
-| 4     | 8,000,000      | 6,000,000    | 4,000,000       | 2,000,000    |
-| Total 4 | 15,000,000  | 11,250,000   | 7,500,000       | 3,750,000    |
+| 2     | 4,000,000      | 3,000,000    | 2,000,000       | 1,000,000    |
+| 3     | 9,000,000      | 6,750,000    | 4,500,000       | 2,250,000    |
+| 4     | 16,000,000     | 12,000,000   | 8,000,000       | 4,000,000    |
+| 5     | 25,000,000     | 18,750,000   | 12,500,000      | 6,250,000    |
 
 Each level awards **1 stat point** to spend on any stat you want.
 
@@ -78,10 +80,13 @@ Open the **Improve** menu (available in main menu, escape menu, and lobby) to se
 
 ### When Stats Apply
 
-Stats are applied **0.25 seconds after entering a level** — early in the load process. This means:
+Stats are applied **a few frames after you spawn into a level**, then continuously re-enforced by a watchdog (and again after each network sync) so they survive host/mod overwrites. This means:
 - Your stat bonuses are active from the very start of each level
+- Allocations are applied **idempotently** — never stacked twice, even across sync events
 - Changing skill allocations in the menu takes effect **next level**, not mid-game
-- Compatible with other mods that read stats later (like Character Stats at 1s)
+- Compatible with other mods that read stats later (like Character Stats)
+
+> **Your bonus never gets baked into the save file.** Improve writes its bonus into your live stats at runtime, but strips it out the instant the game saves and restores it right after — so the `.es3` save only ever stores legitimately purchased upgrades. This means the bonus can't stack on itself across save / quit / relaunch, and uninstalling Improve leaves no inflated stats behind.
 
 ## Configuration
 
