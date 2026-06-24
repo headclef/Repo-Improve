@@ -1,6 +1,6 @@
 # Improve
 
-![Improve Mod Menu](https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20Mod%20Menu.png)
+![Improve in the main menu](https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/improve-main-menu.jpg)
 
 A [BepInEx](https://github.com/BepInEx/BepInEx) mod for **R.E.P.O.** that adds a haul-based leveling system with spendable stat points.
 
@@ -51,9 +51,11 @@ Each level awards **1 stat point** to spend on any stat you want.
 Open the **Improve** menu (available in main menu, escape menu, and lobby) to see two panels:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20Main%20Menu%201.png" width="48%" alt="Main Menu Integration" />
-  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20Main%20Menu%202.png" width="48%" alt="Main Menu Active" />
+  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/improve-no-given-stats.jpg" width="48%" alt="Improve menu before spending points" />
+  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/improve-given-stats.jpg" width="48%" alt="Improve menu after spending five points into Tumble Launch" />
 </p>
+
+> Before and after spending points — five allocated into Tumble Launch drops Available Points from 5 to 0.
 
 **Left panel — Progress:**
 - Lifetime Haul
@@ -61,11 +63,6 @@ Open the **Improve** menu (available in main menu, escape menu, and lobby) to se
 - Available / Spent Points
 - Haul needed for next level
 - Current difficulty
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Panel%20-%20Upgrades.png" width="48%" alt="Progress Panel" />
-  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20Skill%20Pane.png" width="48%" alt="Skill Pane" />
-</p>
 
 **Right panel — Skills:**
 - Sliders for all 13 stats (Health, Speed, Stamina, Extra Jump, Grab Range, Strength, Throw, Tumble Launch, Tumble Climb, Tumble Wings, Crouch Rest, Map Player Count, Death Head Battery)
@@ -85,6 +82,13 @@ Stats are applied **a few frames after you spawn into a level**, then continuous
 - Allocations are applied **idempotently** — never stacked twice, even across sync events
 - Changing skill allocations in the menu takes effect **next level**, not mid-game
 - Compatible with other mods that read stats later (like Character Stats)
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/improve-in-truck.jpg" width="48%" alt="Allocated Tumble Launch points reflected in the game's own Upgrades panel" />
+  <img src="https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/improve-ui-in-truck.jpg" width="48%" alt="Improve level shown in the UI overlay" />
+</p>
+
+Your allocations take effect in-game: the game's own **Upgrades** panel shows the five Tumble Launch points, and (with the [UI](https://github.com/headclef/Repo-UI) mod) the overlay shows your Improve level.
 
 > **Your bonus never gets baked into the save file.** Improve writes its bonus into your live stats at runtime, but strips it out the instant the game saves and restores it right after — so the `.es3` save only ever stores legitimately purchased upgrades. This means the bonus can't stack on itself across save / quit / relaunch, and uninstalling Improve leaves no inflated stats behind.
 
@@ -110,8 +114,6 @@ Save data is stored separately at:
 2. Or manually: place `Improve.dll` into your `BepInEx/plugins` folder.
 3. Launch the game — save file is created automatically.
 4. Open the **Improve** button in the main menu to start spending points.
-
-![First Launch](https://raw.githubusercontent.com/headclef/Repo-Improve/core/screenshots/Ekran%20-%20First%20Launch.png)
 
 ## Multiplayer
 
