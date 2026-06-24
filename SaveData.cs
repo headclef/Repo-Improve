@@ -61,10 +61,10 @@ public static class SaveData
     // ── Level Calculations ──
 
     /// <summary>
-    /// Total level (stat points earned) from lifetime haul using doubling cost formula.
-    /// Cost for level N = baseCost × 2^(N-1) × difficulty
-    /// Total cost for N levels = baseCost × (2^N - 1) × difficulty
-    /// So: N = floor(log2(lifetimeHaul / (baseCost × difficulty) + 1))
+    /// Current level (stat points earned) from lifetime haul.
+    /// Each level N is a single haul threshold: haulForLevel(N) = baseCost × difficulty × N².
+    /// Your level is the highest N whose threshold the haul has reached, so
+    /// level = floor(sqrt(lifetimeHaul / (baseCost × difficulty))).
     /// </summary>
     public static int CurrentLevel()
     {
@@ -75,18 +75,21 @@ public static class SaveData
         if (effectiveCost <= 0 || LifetimeHaul.Value <= 0)
             return 0;
 
-        int level = (int)Math.Floor(Math.Log((double)LifetimeHaul.Value / effectiveCost + 1, 2));
+        int level = (int)Math.Floor(Math.Sqrt(LifetimeHaul.Value / (double)effectiveCost));
         return Math.Max(level, 0);
     }
 
-    /// <summary>Total haul needed to reach the next level.</summary>
+    /// <summary>
+    /// Lifetime haul required to BE at the given level — a single threshold
+    /// (baseCost × difficulty × level²), NOT a cumulative sum of every level below it.
+    /// </summary>
     public static int TotalHaulForLevel(int level)
     {
         if (level <= 0) return 0;
         float baseCost = Improve.BaseCost.Value;
         float difficulty = Improve.DifficultyMultiplier.Value;
-        // Total cost for 'level' levels = baseCost × (2^level - 1) × difficulty
-        return (int)(baseCost * (Math.Pow(2, level) - 1) * difficulty);
+        double threshold = (double)baseCost * difficulty * level * level;
+        return (int)Math.Min(threshold, int.MaxValue);
     }
 
     /// <summary>Haul still needed for the next level.</summary>
@@ -215,14 +218,25 @@ public static class SaveData
             dict[steamId] = value;
     }
 
-    // ── Tracking applied base values ──
-    // After applying, _appliedBase[stat] = the base (pre-Improve) value we saw.
-    // This lets the watchdog distinguish "external wipe" from "shop upgrade".
+    // ── Tracking what we applied (persists across levels within a run) ──
+    // _appliedBase[stat]  = the true (pre-Improve) base we derived for that stat.
+    // _appliedDelta[stat] = the allocation we last wrote on top of that base.
+    // Together they reconstruct the exact value we last wrote (base + delta), which
+    // lets ApplyStats tell apart "untouched", "shop added on top", and "externally
+    // wiped" — so our bonus is never stacked. Cleared only on a run reset.
     internal static readonly Dictionary<string, int> _appliedBase = new();
+    internal static readonly Dictionary<string, int> _appliedDelta = new();
 
     /// <summary>
-    /// Apply Improve allocations on top of whatever the game currently reports.
-    /// Writes directly to StatsManager dictionaries (local-only, no network).
+    /// Reconcile our allocations with the live stat values (local-only writes). For
+    /// each stat we derive the true base from the value we last wrote:
+    ///   • cur == lastWritten → base unchanged (already applied — never stack)
+    ///   • cur  &gt; lastWritten → something ADDED on top (e.g. a shop purchase between
+    ///                          levels) → fold the difference into the base
+    ///   • cur  &lt; lastWritten → something WIPED it (host sync, or the game resetting
+    ///                          upgrades to base on death) → treat cur as the new base
+    /// then write base + currentAllocation. Idempotent and self-correcting, so it can
+    /// run every level and repeatedly via the watchdog without ever double-adding.
     /// </summary>
     public static void ApplyStats()
     {
@@ -231,79 +245,107 @@ public static class SaveData
 
         string steamId = PlayerController.instance.playerSteamID;
 
-        _appliedBase.Clear();
-
         foreach (string stat in AllStatNames)
         {
             int alloc = GetAllocationForStat(stat);
             int cur = ReadStatLocal(stat, steamId);
 
-            // Record the base before we add
-            _appliedBase[stat] = cur;
-
-            if (alloc <= 0) continue;
-            WriteStatLocal(stat, steamId, cur + alloc);
-        }
-
-        Improve.Logger.LogInfo($"Improve stats applied locally (Level {CurrentLevel()}, {TotalSpent()} spent, {AvailablePoints()} available).");
-    }
-
-    /// <summary>
-    /// Check if any external force (host sync, stat-sharing mod) has overwritten
-    /// our local stat values. If the current value for any allocated stat differs
-    /// from (base + alloc), an external change happened — re-derive base and re-apply.
-    /// Returns true if a re-apply was needed.
-    /// </summary>
-    public static bool EnforceStats()
-    {
-        if (PlayerController.instance == null) return false;
-        if (StatsManager.instance == null) return false;
-        if (_appliedBase.Count == 0) return false;
-
-        string steamId = PlayerController.instance.playerSteamID;
-        bool dirty = false;
-
-        foreach (string stat in AllStatNames)
-        {
-            int alloc = GetAllocationForStat(stat);
-            int cur = ReadStatLocal(stat, steamId);
-            int expectedBase = _appliedBase.TryGetValue(stat, out int b) ? b : 0;
-            int expected = expectedBase + alloc;
-
-            if (cur == expected) continue;
-
-            // Something changed this stat externally.
-            // Derive the new base: whatever the current value is minus our alloc
-            // (if our alloc is still present) or just the raw current value.
-            int newBase;
-            if (cur < expected)
+            int baseVal;
+            if (_appliedBase.TryGetValue(stat, out int prevBase) &&
+                _appliedDelta.TryGetValue(stat, out int prevDelta))
             {
-                // Stat decreased → our allocation was (partially or fully) wiped.
-                // Treat current value as the new base.
-                newBase = cur;
+                int lastWritten = prevBase + prevDelta;
+                if (cur > lastWritten)
+                    baseVal = prevBase + (cur - lastWritten);  // external added (shop)
+                else if (cur < lastWritten)
+                    baseVal = cur;                             // external wiped (host/death)
+                else
+                    baseVal = prevBase;                        // intact — no change
             }
             else
             {
-                // Stat increased beyond expected → something added on top (shop buy).
-                // New base = current minus our allocation.
-                newBase = cur - alloc;
+                baseVal = cur;  // first reconcile this run — current value is the base
             }
 
-            _appliedBase[stat] = newBase;
-            dirty = true;
+            _appliedBase[stat] = baseVal;
+            _appliedDelta[stat] = alloc;
 
-            if (alloc > 0)
-            {
-                int newTotal = newBase + alloc;
-                WriteStatLocal(stat, steamId, newTotal);
-            }
+            WriteStatLocal(stat, steamId, baseVal + alloc);
         }
 
-        if (dirty)
+        Improve.Logger.LogDebug($"Improve stats reconciled (Level {CurrentLevel()}, {TotalSpent()} spent, {AvailablePoints()} available).");
+    }
+
+    /// <summary>
+    /// Back-compat alias — the reconcile in <see cref="ApplyStats"/> already handles
+    /// external changes (host sync / shop / reset), so "enforcing" is just reconciling.
+    /// </summary>
+    public static void EnforceStats() => ApplyStats();
+
+    // ── Save-file leak protection ──
+    // The game serializes the playerUpgrade* dictionaries verbatim to the .es3 save
+    // (none of them are in StatsManager.doNotSaveTheseDictionaries). Because we write
+    // our bonus straight into those dicts, a naive save would bake "base + alloc" into
+    // the file. Our per-run tracking (_appliedBase/_appliedDelta) is in-memory only, so
+    // after a relaunch the inflated value is mistaken for the true base and our bonus is
+    // stacked again — compounding every save/quit/relaunch. To prevent this we strip the
+    // bonus just before the game serializes and restore it right after.
+    private static readonly List<string> _strippedForSave = new();
+
+    /// <summary>
+    /// Called from a SaveGame PREFIX: write the true base (without our allocation) into
+    /// each stat we boosted, so the save file never contains Improve's bonus. Only strips
+    /// entries whose live value still equals exactly what we last wrote (base + delta);
+    /// anything an external force changed is left untouched to avoid corrupting the save.
+    /// </summary>
+    public static void StripBonusForSave()
+    {
+        _strippedForSave.Clear();
+        if (PlayerController.instance == null || StatsManager.instance == null) return;
+
+        string steamId = PlayerController.instance.playerSteamID;
+        foreach (string stat in AllStatNames)
         {
-            Improve.Logger.LogDebug("Watchdog: detected external stat change — re-applied allocations locally.");
+            if (!_appliedDelta.TryGetValue(stat, out int delta) || delta == 0) continue;
+            if (!_appliedBase.TryGetValue(stat, out int baseVal)) continue;
+
+            if (ReadStatLocal(stat, steamId) == baseVal + delta)
+            {
+                WriteStatLocal(stat, steamId, baseVal);
+                _strippedForSave.Add(stat);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Called from a SaveGame FINALIZER (runs even if the save throws): re-add our bonus
+    /// to exactly the entries StripBonusForSave stripped, restoring the live in-game value.
+    /// </summary>
+    public static void RestoreBonusAfterSave()
+    {
+        if (_strippedForSave.Count == 0) return;
+
+        if (PlayerController.instance != null && StatsManager.instance != null)
+        {
+            string steamId = PlayerController.instance.playerSteamID;
+            foreach (string stat in _strippedForSave)
+            {
+                if (_appliedBase.TryGetValue(stat, out int baseVal) &&
+                    _appliedDelta.TryGetValue(stat, out int delta))
+                    WriteStatLocal(stat, steamId, baseVal + delta);
+            }
         }
 
-        return dirty;
+        _strippedForSave.Clear();
+    }
+
+    /// <summary>
+    /// Forget all per-run tracking. Called on a run reset — the game wipes the upgrade
+    /// dictionaries itself, so the next run starts a fresh reconcile from the true base.
+    /// </summary>
+    public static void ClearTracking()
+    {
+        _appliedBase.Clear();
+        _appliedDelta.Clear();
     }
 }
