@@ -15,6 +15,7 @@ public static class ImproveMenu
     private static REPOPopupPage _statsPage;
     private static REPOPopupPage _skillsPage;
     private static REPOLabel _availablePointsLabel;
+    private static REPOLabel _spentPointsLabel;
     private static REPOSlider[] _skillSliders;
 
     internal static void Initialize()
@@ -115,7 +116,7 @@ public static class ImproveMenu
             MenuAPI.CreateREPOLabel(FormatHaul(SaveData.LifetimeHaul.Value), _statsPage.transform, new Vector2(240, 280)),
             MenuAPI.CreateREPOLabel($"{level}", _statsPage.transform, new Vector2(240, 255)),
             _availablePointsLabel = MenuAPI.CreateREPOLabel(availableText, _statsPage.transform, new Vector2(240, 230)),
-            MenuAPI.CreateREPOLabel($"{spent}", _statsPage.transform, new Vector2(240, 205)),
+            _spentPointsLabel = MenuAPI.CreateREPOLabel($"{spent}", _statsPage.transform, new Vector2(240, 205)),
             MenuAPI.CreateREPOLabel(FormatHaul(needed), _statsPage.transform, new Vector2(240, 180)),
             MenuAPI.CreateREPOLabel(diffLabel, _statsPage.transform, new Vector2(240, 155)),
 
@@ -226,6 +227,7 @@ public static class ImproveMenu
         int spendable = Math.Max(available, 0);
         string availableText = SaveData.IsOverspent() ? $"{available} (OVER!)" : $"{available}";
         _availablePointsLabel.labelTMP.text = availableText;
+        _spentPointsLabel.labelTMP.text = $"{SaveData.TotalSpent()}";
 
         for (int i = 0; i < _skillSliders.Length; i++)
         {
