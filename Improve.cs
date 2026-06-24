@@ -7,11 +7,12 @@ using UnityEngine;
 namespace Improve;
 
 [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
+[BepInDependency("nickklmao.menulib", BepInDependency.DependencyFlags.HardDependency)]
 public class Improve : BaseUnityPlugin
 {
     private const string PluginGuid = "headclef.Improve";
     private const string PluginName = "Improve";
-    private const string PluginVersion = "1.0.3";
+    private const string PluginVersion = "1.1.1";
 
     internal static Improve Instance { get; private set; } = null!;
     internal new static ManualLogSource Logger => Instance._logger;
@@ -54,7 +55,7 @@ public class Improve : BaseUnityPlugin
 
         BaseCost = Config.Bind(section, "Base Cost", 1000000,
             new ConfigDescription(
-                "Base haul cost for the first level-up. Cost doubles each level.",
+                "Base haul cost for level 1. Haul to reach level N is baseCost x difficulty x N^2.",
                 new AcceptableValueRange<int>(100000, 10000000)));
     }
 }
