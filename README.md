@@ -102,7 +102,7 @@ Settings are in `BepInEx/config/headclef.Improve.cfg` or in the **in-game mod co
 | Base Cost | `1,000,000` | 100k–10M | Base cost for the first level |
 
 Save data is stored separately at:
-`%AppData%/../LocalLow/semiwork/REPO/REPOModData/Improve/save.cfg`
+`%AppData%/../LocalLow/semiwork/Repo/REPOModData/Improve/save.cfg`
 
 ## Requirements
 
