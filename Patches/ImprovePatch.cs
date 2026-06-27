@@ -7,41 +7,27 @@ namespace Improve.Patches;
 [HarmonyPatch]
 internal static class HaulTrackerPatch
 {
-    private static int _haulAtLevelStart;
-
     /// <summary>
-    /// Snapshot the run haul at the start of each level.
-    /// This is our baseline — we only count haul earned DURING this level.
-    /// </summary>
-    [HarmonyPatch(typeof(StatsManager), nameof(StatsManager.PlayerAdd))]
-    [HarmonyPostfix]
-    private static void PlayerAdd_Postfix(string _steamID)
-    {
-        if (PlayerAvatar.instance == null) return;
-        if (_steamID != PlayerAvatar.instance.steamID) return;
-
-        _haulAtLevelStart = StatsManager.instance.GetRunStatTotalHaul();
-        Improve.Logger.LogDebug($"Level start baseline: {_haulAtLevelStart}");
-    }
-
-    /// <summary>
-    /// Capture haul delta when leaving a level.
-    /// Only the haul earned during THIS level is added to lifetime total.
+    /// Fold any haul earned since we last looked into the lifetime total, just before the game
+    /// runs its end-of-scene logic. We bank on EVERY scene switch with no "are we in a level?"
+    /// gate: when a level is completed the game has already advanced the current level to the
+    /// post-level shop (RunManager.ChangeLevel / UpdateLevel set levelCurrent before calling
+    /// OnSceneSwitch), so gating on RunIsLevel() — which reads the current level — would skip the
+    /// very transition that ends a map. SaveData.BankRunHaul is idempotent against the cumulative
+    /// run haul, so banking on shop / lobby transitions too is harmless: the delta is 0 when no
+    /// new haul was earned. Fires on host (ChangeLevel) and clients (UpdateLevel via RPC) alike.
     /// </summary>
     [HarmonyPatch(typeof(SemiFunc), nameof(SemiFunc.OnSceneSwitch))]
     [HarmonyPrefix]
-    private static void OnSceneSwitch_Prefix()
-    {
-        if (!SemiFunc.RunIsLevel()) return;
+    private static void OnSceneSwitch_Prefix() => SaveData.BankRunHaul();
 
-        int currentRunHaul = StatsManager.instance.GetRunStatTotalHaul();
-        int delta = currentRunHaul - _haulAtLevelStart;
-
-        if (delta <= 0) return;
-
-        SaveData.LifetimeHaul.Value += delta;
-        Improve.Logger.LogInfo($"Level haul captured: +{delta} (lifetime: {SaveData.LifetimeHaul.Value})");
-    }
+    /// <summary>
+    /// A saved run was loaded (Continue). Its restored haul was already banked by the session
+    /// that saved it, so re-baseline rather than banking the whole loaded total a second time.
+    /// </summary>
+    [HarmonyPatch(typeof(StatsManager), nameof(StatsManager.LoadGame))]
+    [HarmonyPostfix]
+    private static void LoadGame_Postfix() => SaveData.MarkHaulBaselineStale();
 }
 
 
@@ -115,6 +101,7 @@ internal static class StatApplyPatch
         StopWatchdog();
         StopDeferredApply();
         SaveData.ClearTracking();
+        SaveData.MarkHaulBaselineStale();
     }
 
     /// <summary>
@@ -182,6 +169,7 @@ internal static class StatApplyPatch
         while (SemiFunc.RunIsLevel())
         {
             SaveData.EnforceStats();
+            SaveData.BankRunHaul(); // also bank in-level, so the final map isn't lost if its scene switch is missed
             yield return new WaitForSeconds(0.5f);
         }
 

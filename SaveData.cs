@@ -58,6 +58,62 @@ public static class SaveData
         AllocDeathHeadBattery = save.Bind("Skills", "DeathHeadBattery", 0, "Points spent on Death Head Battery.");
     }
 
+    // ── Run-Haul Banking ──
+    // _lastSeenRunHaul = the cumulative run haul we've already folded into LifetimeHaul this run.
+    // _haulBaselined   = whether we've taken a baseline for the current run yet. Until we have, the
+    //                    first value we see is treated as ALREADY banked — so continuing a saved
+    //                    run, or joining a multiplayer run mid-way, never re-banks the haul earned
+    //                    before we got here (only growth from here on counts).
+    private static int _lastSeenRunHaul;
+    private static bool _haulBaselined;
+
+    /// <summary>
+    /// Fold any newly-earned run haul into the lifetime total. The run's <c>totalHaul</c> is
+    /// cumulative and only resets (to 0) when a new run starts, so we bank the positive growth
+    /// since we last looked and advance our marker. Idempotent and self-correcting, so it is safe
+    /// to call on every scene switch AND on a periodic tick, on host and client alike (both keep
+    /// <c>runStats["totalHaul"]</c> in sync):
+    ///   • not yet baselined → adopt the current value as the baseline (assume already banked)
+    ///   • cur &gt; marker    → new haul earned → add the difference and advance the marker
+    ///   • cur &lt; marker    → run reset / different run loaded → re-baseline, never bank negative
+    ///
+    /// This replaces the old "baseline at level start, capture on leave" logic, which gated on
+    /// <c>RunIsLevel()</c> at scene-switch time — but by then the game has already advanced the
+    /// current level to the post-level shop, so the gate read false and each completed map's haul
+    /// was skipped (captured only a cycle late, and the final map dropped entirely).
+    /// </summary>
+    public static void BankRunHaul()
+    {
+        if (StatsManager.instance == null) return;
+
+        int cur = StatsManager.instance.GetRunStatTotalHaul();
+
+        if (!_haulBaselined)
+        {
+            _lastSeenRunHaul = cur;
+            _haulBaselined = true;
+            return;
+        }
+
+        if (cur > _lastSeenRunHaul)
+        {
+            int delta = cur - _lastSeenRunHaul;
+            LifetimeHaul.Value += delta;
+            _lastSeenRunHaul = cur;
+            Improve.Logger.LogInfo($"Haul banked: +{delta} (lifetime: {LifetimeHaul.Value}, level {CurrentLevel()})");
+        }
+        else if (cur < _lastSeenRunHaul)
+        {
+            _lastSeenRunHaul = cur; // run reset / different run loaded — re-baseline, don't bank negative
+        }
+    }
+
+    /// <summary>
+    /// Force the next <see cref="BankRunHaul"/> to re-take its baseline. Called when a run is reset
+    /// or a saved run is loaded, so we never re-bank haul a previous session already counted.
+    /// </summary>
+    public static void MarkHaulBaselineStale() => _haulBaselined = false;
+
     // ── Level Calculations ──
 
     /// <summary>
