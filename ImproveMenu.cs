@@ -254,13 +254,10 @@ public static class ImproveMenu
 
     private static string FormatHaul(int value)
     {
-        if (value >= 1_000_000_000)
-            return (value / 1_000_000_000D).ToString("0.##") + "B";
-        if (value >= 1_000_000)
-            return (value / 1_000_000D).ToString("0.##") + "M";
-        if (value >= 1_000)
-            return (value / 1_000D).ToString("0.##") + "K";
-        
-        return value.ToString("N0");
+        // Always express haul in thousands (K) rather than collapsing big values to "M".
+        // On 30K–200K maps an "M" display rounds the gain away (e.g. +35K is invisible at "15M");
+        // in K the same gain reads clearly: 1,000,000 → "1000K", and finishing a 35K map shows
+        // 15000K → 15035K. Display only, floored to whole K — LifetimeHaul keeps full precision.
+        return (value / 1_000) + "K";
     }
 }
