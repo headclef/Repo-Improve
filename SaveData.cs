@@ -59,7 +59,8 @@ public static class SaveData
     }
 
     // ── Run-Haul Banking ──
-    // _lastSeenRunHaul = the cumulative run haul we've already folded into LifetimeHaul this run.
+    // _lastSeenRunHaul = the run's cumulative haul (in the game's K run-stat units) already folded
+    //                    into LifetimeHaul this run.
     // _haulBaselined   = whether we've taken a baseline for the current run yet. Until we have, the
     //                    first value we see is treated as ALREADY banked — so continuing a saved
     //                    run, or joining a multiplayer run mid-way, never re-banks the haul earned
@@ -74,7 +75,8 @@ public static class SaveData
     /// to call on every scene switch AND on a periodic tick, on host and client alike (both keep
     /// <c>runStats["totalHaul"]</c> in sync):
     ///   • not yet baselined → adopt the current value as the baseline (assume already banked)
-    ///   • cur &gt; marker    → new haul earned → add the difference and advance the marker
+    ///   • cur &gt; marker    → new haul earned → bank the difference ×1000 (the run stat is in K,
+    ///                          but LifetimeHaul/baseCost are raw currency) and advance the marker
     ///   • cur &lt; marker    → run reset / different run loaded → re-baseline, never bank negative
     ///
     /// This replaces the old "baseline at level start, capture on leave" logic, which gated on
@@ -97,7 +99,10 @@ public static class SaveData
 
         if (cur > _lastSeenRunHaul)
         {
-            int delta = cur - _lastSeenRunHaul;
+            // GetRunStatTotalHaul is in thousands (the game banks item value /1000), but LifetimeHaul
+            // and the level thresholds (baseCost) are in raw currency — so scale the K delta back up
+            // by 1000. A 510K map (run-stat +510) banks +510,000, i.e. 15,000,000 -> 15,510,000.
+            int delta = (cur - _lastSeenRunHaul) * 1000;
             LifetimeHaul.Value += delta;
             _lastSeenRunHaul = cur;
             Improve.Logger.LogInfo($"Haul banked: +{delta} (lifetime: {LifetimeHaul.Value}, level {CurrentLevel()})");

@@ -254,11 +254,9 @@ public static class ImproveMenu
 
     private static string FormatHaul(int value)
     {
-        // Haul is already stored in thousands (K): the game divides raw item value by 1000 when it
-        // banks the haul (ExtractionPoint) and renders currency as "$<value>K" (CurrencyUI /
-        // SemiFunc.DollarGetString). So we match the game exactly: append "K" to the raw stored
-        // value, never divide. That keeps small-map earnings visible (a 35K map reads +35, a 510K
-        // map +510) instead of being rounded to nothing by a stray division.
-        return value.ToString("N0") + "K";
+        // LifetimeHaul is stored in raw currency; the game shows currency in thousands as "$<n>K",
+        // so divide by 1000 and append "K" to match. A 35K map then reads 15000K -> 15035K, and a
+        // 510K map 15000K -> 15510K.
+        return (value / 1_000) + "K";
     }
 }
