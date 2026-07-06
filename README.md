@@ -77,8 +77,8 @@ Open the **Improve** menu (available in main menu, escape menu, and lobby) to se
 
 ### When Stats Apply
 
-Stats are applied **a few frames after you spawn into a level**, then continuously re-enforced by a watchdog (and again after each network sync) so they survive host/mod overwrites. This means:
-- Your stat bonuses are active from the very start of each level
+Stats are applied **a few frames after you spawn into any scene** — levels, the truck and the shop alike — then continuously re-enforced by a watchdog (and again after each network sync) so they survive host/mod overwrites. This means:
+- Your stat bonuses are active from the very start of each level, and stay active in the truck between levels (in co-op the host re-syncs everyone's stats at every scene switch; Improve re-applies yours right after)
 - Allocations are applied **idempotently** — never stacked twice, even across sync events
 - Changing skill allocations in the menu takes effect **next level**, not mid-game
 - Compatible with other mods that read stats later (like Character Stats)
@@ -117,9 +117,17 @@ Save data is stored separately at:
 
 ## Multiplayer
 
-- Each player tracks their own haul and stat allocations **independently** (client-side save)
-- Stats are applied per-client at level start
-- Only haul earned during levels you participate in counts — no credit for joining a high-haul session midway
+- Each player tracks their own haul and stat allocations **independently** (client-side save). Your numbers are always your own — the host's allocations never mix into yours.
+- Only haul earned during levels you participate in counts — no credit for joining a high-haul session midway.
+
+**Playing as a client (not the host):** R.E.P.O. simulates some stats on the host's machine, so they split into two groups:
+
+| Stats | Work when you are a client? |
+| ----- | --------------------------- |
+| Health, Sprint Speed, Stamina, Extra Jump, Grab Range, Tumble Climb, Crouch Rest, Map Player Count, Death Head Battery | ✅ Always — these are read on your own machine |
+| Grab Strength, Tumble Launch, Throw, Tumble Wings | ✅ If the **host also has Improve installed** — your totals are carried over a small network bridge and applied to your character on the host's simulation. ❌ Silently inactive otherwise (the game computes grab/launch/throw physics on the host only, and its stat-writing RPCs are host-only by design) |
+
+The bridge only ever speaks for the sending player (it mirrors the game's own owner-only RPC checks), never touches the host's dictionaries or save file, and needs no configuration — install Improve on both sides and it just works. As the host or in single player, everything works with no requirements.
 
 ## Compatibility
 
@@ -134,6 +142,7 @@ Save data is stored separately at:
 ├── Improve.cs                      # Plugin entry point & config
 ├── SaveData.cs                     # Persistent save data & level calculations
 ├── ImproveMenu.cs                  # MenuLib UI — progress & skill panels
+├── NetworkBridge.cs                # Co-op bridge for host-simulated stats
 ├── Patches/
 │   └── ImprovePatch.cs             # Haul capture & stat application hooks
 └── README.md

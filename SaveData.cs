@@ -306,6 +306,10 @@ public static class SaveData
 
         string steamId = PlayerController.instance.playerSteamID;
 
+        // Early in a scene the controller exists but AddToStatsManagerRPC hasn't named it
+        // yet — a null key would throw inside the dictionaries and poison the tracking.
+        if (string.IsNullOrEmpty(steamId)) return;
+
         foreach (string stat in AllStatNames)
         {
             int alloc = GetAllocationForStat(stat);
@@ -365,6 +369,8 @@ public static class SaveData
         if (PlayerController.instance == null || StatsManager.instance == null) return;
 
         string steamId = PlayerController.instance.playerSteamID;
+        if (string.IsNullOrEmpty(steamId)) return;
+
         foreach (string stat in AllStatNames)
         {
             if (!_appliedDelta.TryGetValue(stat, out int delta) || delta == 0) continue;
@@ -386,7 +392,8 @@ public static class SaveData
     {
         if (_strippedForSave.Count == 0) return;
 
-        if (PlayerController.instance != null && StatsManager.instance != null)
+        if (PlayerController.instance != null && StatsManager.instance != null &&
+            !string.IsNullOrEmpty(PlayerController.instance.playerSteamID))
         {
             string steamId = PlayerController.instance.playerSteamID;
             foreach (string stat in _strippedForSave)

@@ -37,15 +37,26 @@ internal static class StatApplyPatch
     private static Coroutine? _watchdog;
     private static Coroutine? _deferredApply;
 
+    /// <summary>True in scenes where no gameplay stats exist (main menu, lobby menu).
+    /// Everywhere else — levels AND the truck/shop — stats must be applied: the host
+    /// re-syncs all dictionaries on EVERY scene switch (SemiFunc.OnSceneSwitch →
+    /// StatSyncAll), which wipes a client's local bonus, and the player components
+    /// re-derive their live values from the dictionaries at every spawn, truck included
+    /// (PlayerHealth.Fetch even clamps and persists health against the un-boosted max).
+    /// Gating the reconcile to RunIsLevel() left clients at vanilla stats in the truck
+    /// and shop — and bleeding max-health there — while the host, whose dictionaries are
+    /// never wiped, kept its bonus everywhere.</summary>
+    private static bool InMenuScene() => SemiFunc.MenuLevel() || SemiFunc.RunIsLobbyMenu();
+
     /// <summary>
-    /// When the player is added to a level, defer initial application
+    /// When the player is added to a scene, defer initial application
     /// and start the watchdog coroutine.
     /// </summary>
     [HarmonyPatch(typeof(StatsManager), nameof(StatsManager.PlayerAdd))]
     [HarmonyPostfix]
     private static void PlayerAdd_Postfix(string _steamID)
     {
-        if (!SemiFunc.RunIsLevel()) return;
+        if (InMenuScene()) return;
         if (PlayerAvatar.instance == null) return;
         if (_steamID != PlayerAvatar.instance.steamID) return;
 
@@ -65,7 +76,7 @@ internal static class StatApplyPatch
     private static void ReceiveSyncData_Postfix(bool finalChunk)
     {
         if (!finalChunk) return;
-        if (!SemiFunc.RunIsLevel()) return;
+        if (InMenuScene()) return;
 
         // Sync may have overwritten our local values — reconcile immediately.
         Improve.Logger.LogDebug("Sync complete — reconciling Improve allocations...");
@@ -73,19 +84,20 @@ internal static class StatApplyPatch
     }
 
     /// <summary>
-    /// When leaving a level, just stop our coroutines. We deliberately KEEP the per-run
-    /// tracking (_appliedBase / _appliedDelta): the next level reconciles against it,
+    /// On any scene switch, just stop our coroutines — PlayerAdd restarts them in the next
+    /// scene (the avatar is recreated every scene). We deliberately KEEP the per-run
+    /// tracking (_appliedBase / _appliedDelta): the next scene reconciles against it,
     /// which both prevents re-stacking our bonus AND folds in any shop purchase made
-    /// between levels. We do NOT strip the bonus here — values stay consistent in the
-    /// truck/shop, and the next level's reconcile derives the correct base.
+    /// between levels. The network bridge drops its per-instance tracking too — the
+    /// components it applied to die with the scene.
     /// </summary>
     [HarmonyPatch(typeof(SemiFunc), nameof(SemiFunc.OnSceneSwitch))]
     [HarmonyPrefix]
     private static void OnSceneSwitch_Prefix()
     {
-        if (!SemiFunc.RunIsLevel()) return;
         StopWatchdog();
         StopDeferredApply();
+        NetworkBridge.OnSceneSwitch();
     }
 
     /// <summary>
@@ -125,7 +137,7 @@ internal static class StatApplyPatch
 
     /// <summary>
     /// Wait a few frames for the game, host sync, and other mods to finish setting
-    /// base stat values, then apply Improve allocations. The FIRST run this level
+    /// base stat values, then apply Improve allocations. The FIRST run this scene
     /// establishes the base via ApplyStats; any later run enforces (idempotent) so
     /// allocations are never stacked on top of an already-boosted value.
     /// </summary>
@@ -136,7 +148,7 @@ internal static class StatApplyPatch
         yield return null; // 3 frames — give host sync and stat-sharing mods time
 
         _deferredApply = null;
-        if (!SemiFunc.RunIsLevel()) yield break;
+        if (InMenuScene()) yield break;
 
         SaveData.ApplyStats();  // idempotent reconcile — correct whether first apply or re-apply
     }
@@ -166,7 +178,7 @@ internal static class StatApplyPatch
         // Wait for initial apply to settle
         yield return new WaitForSeconds(1f);
 
-        while (SemiFunc.RunIsLevel())
+        while (!InMenuScene())
         {
             SaveData.EnforceStats();
             SaveData.BankRunHaul(); // also bank in-level, so the final map isn't lost if its scene switch is missed
