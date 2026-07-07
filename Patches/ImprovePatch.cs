@@ -37,50 +37,59 @@ internal static class StatApplyPatch
     private static Coroutine? _watchdog;
     private static Coroutine? _deferredApply;
 
-    /// <summary>True in scenes where no gameplay stats exist (main menu, lobby menu).
-    /// Everywhere else — levels AND the truck/shop — stats must be applied: the host
-    /// re-syncs all dictionaries on EVERY scene switch (SemiFunc.OnSceneSwitch →
-    /// StatSyncAll), which wipes a client's local bonus, and the player components
-    /// re-derive their live values from the dictionaries at every spawn, truck included
-    /// (PlayerHealth.Fetch even clamps and persists health against the un-boosted max).
-    /// Gating the reconcile to RunIsLevel() left clients at vanilla stats in the truck
-    /// and shop — and bleeding max-health there — while the host, whose dictionaries are
-    /// never wiped, kept its bonus everywhere.</summary>
-    private static bool InMenuScene() => SemiFunc.MenuLevel() || SemiFunc.RunIsLobbyMenu();
-
     /// <summary>
-    /// When the player is added to a scene, defer initial application
-    /// and start the watchdog coroutine.
+    /// When the player is added to a level, defer initial application and start the
+    /// watchdog coroutine. Gated to actual levels: these hooks fire from PUN RPC handlers
+    /// (PlayerAdd via AddToStatsManagerRPC, ReceiveSyncData) during the join/scene-sync
+    /// handshake, so they must do NOTHING while the game is connecting or loading — the
+    /// avatar re-derives everything from the dictionaries on the next level spawn anyway.
+    /// The whole body is wrapped so a stray exception can never propagate back into the
+    /// game's RPC dispatch and freeze networking (a permanent loading screen).
     /// </summary>
     [HarmonyPatch(typeof(StatsManager), nameof(StatsManager.PlayerAdd))]
     [HarmonyPostfix]
     private static void PlayerAdd_Postfix(string _steamID)
     {
-        if (InMenuScene()) return;
-        if (PlayerAvatar.instance == null) return;
-        if (_steamID != PlayerAvatar.instance.steamID) return;
+        try
+        {
+            if (!SemiFunc.RunIsLevel()) return;
+            if (PlayerAvatar.instance == null) return;
+            if (_steamID != PlayerAvatar.instance.steamID) return;
 
-        // ApplyStats is an idempotent reconcile, so repeated PlayerAdd / sync triggers
-        // never double-apply. ScheduleApply just debounces rapid back-to-back triggers.
-        Improve.Logger.LogDebug("Player data added — scheduling Improve stat application...");
-        ScheduleApply();
-        StartWatchdog();
+            // ApplyStats is an idempotent reconcile, so repeated PlayerAdd / sync triggers
+            // never double-apply. ScheduleApply just debounces rapid back-to-back triggers.
+            Improve.Logger.LogDebug("Player data added — scheduling Improve stat application...");
+            ScheduleApply();
+            StartWatchdog();
+        }
+        catch (System.Exception ex)
+        {
+            Improve.Logger.LogWarning($"PlayerAdd hook skipped: {ex.Message}");
+        }
     }
 
     /// <summary>
     /// After a network sync completes, external data may have overwritten
-    /// our local stat values. Immediately enforce our allocations.
+    /// our local stat values. Immediately enforce our allocations. Runs from a PUN RPC
+    /// handler, so it is level-gated and fully guarded (see PlayerAdd_Postfix).
     /// </summary>
     [HarmonyPatch(typeof(PunManager), nameof(PunManager.ReceiveSyncData))]
     [HarmonyPostfix]
     private static void ReceiveSyncData_Postfix(bool finalChunk)
     {
-        if (!finalChunk) return;
-        if (InMenuScene()) return;
+        try
+        {
+            if (!finalChunk) return;
+            if (!SemiFunc.RunIsLevel()) return;
 
-        // Sync may have overwritten our local values — reconcile immediately.
-        Improve.Logger.LogDebug("Sync complete — reconciling Improve allocations...");
-        SaveData.ApplyStats();
+            // Sync may have overwritten our local values — reconcile immediately.
+            Improve.Logger.LogDebug("Sync complete — reconciling Improve allocations...");
+            SaveData.ApplyStats();
+        }
+        catch (System.Exception ex)
+        {
+            Improve.Logger.LogWarning($"ReceiveSyncData hook skipped: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -95,9 +104,16 @@ internal static class StatApplyPatch
     [HarmonyPrefix]
     private static void OnSceneSwitch_Prefix()
     {
-        StopWatchdog();
-        StopDeferredApply();
-        NetworkBridge.OnSceneSwitch();
+        try
+        {
+            StopWatchdog();
+            StopDeferredApply();
+            NetworkBridge.OnSceneSwitch();
+        }
+        catch (System.Exception ex)
+        {
+            Improve.Logger.LogWarning($"OnSceneSwitch hook skipped: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -148,9 +164,10 @@ internal static class StatApplyPatch
         yield return null; // 3 frames — give host sync and stat-sharing mods time
 
         _deferredApply = null;
-        if (InMenuScene()) yield break;
+        if (!SemiFunc.RunIsLevel()) yield break;
 
-        SaveData.ApplyStats();  // idempotent reconcile — correct whether first apply or re-apply
+        try { SaveData.ApplyStats(); }  // idempotent reconcile — correct whether first apply or re-apply
+        catch (System.Exception ex) { Improve.Logger.LogWarning($"Deferred apply skipped: {ex.Message}"); }
     }
 
     /// <summary>
@@ -178,10 +195,14 @@ internal static class StatApplyPatch
         // Wait for initial apply to settle
         yield return new WaitForSeconds(1f);
 
-        while (!InMenuScene())
+        while (SemiFunc.RunIsLevel())
         {
-            SaveData.EnforceStats();
-            SaveData.BankRunHaul(); // also bank in-level, so the final map isn't lost if its scene switch is missed
+            try
+            {
+                SaveData.EnforceStats();
+                SaveData.BankRunHaul(); // also bank in-level, so the final map isn't lost if its scene switch is missed
+            }
+            catch (System.Exception ex) { Improve.Logger.LogWarning($"Watchdog tick skipped: {ex.Message}"); }
             yield return new WaitForSeconds(0.5f);
         }
 

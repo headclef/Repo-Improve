@@ -77,8 +77,8 @@ Open the **Improve** menu (available in main menu, escape menu, and lobby) to se
 
 ### When Stats Apply
 
-Stats are applied **a few frames after you spawn into any scene** — levels, the truck and the shop alike — then continuously re-enforced by a watchdog (and again after each network sync) so they survive host/mod overwrites. This means:
-- Your stat bonuses are active from the very start of each level, and stay active in the truck between levels (in co-op the host re-syncs everyone's stats at every scene switch; Improve re-applies yours right after)
+Stats are applied **a few frames after you spawn into a level**, then continuously re-enforced by a watchdog (and again after each network sync) so they survive host/mod overwrites. This means:
+- Your stat bonuses are active from the very start of each level
 - Allocations are applied **idempotently** — never stacked twice, even across sync events
 - Changing skill allocations in the menu takes effect **next level**, not mid-game
 - Compatible with other mods that read stats later (like Character Stats)

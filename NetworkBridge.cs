@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using ExitGames.Client.Photon;
 using Photon.Pun;
@@ -20,15 +21,20 @@ namespace Improve;
 ///
 /// The bridge fixes that when the host also runs Improve: each client broadcasts its
 /// allocation totals for the four stats over a custom Photon event, and the receiver on the
-/// MASTER applies them as live component deltas to that player's replica — using the game's
-/// own per-level formulas, reconciled so the game's spawn derivation and vanilla upgrade
-/// pickups are never double-counted. The master's dictionaries are never touched, so nothing
-/// can leak into the host's save file.
+/// MASTER applies them as live component deltas to that player's replica.
+///
+/// CRITICAL SAFETY RULE (see <see cref="SafeToNetwork"/>): the bridge NEVER touches Photon
+/// unless the message queue is running. When a client joins a room the game turns on
+/// <c>AutomaticallySyncScene</c> and PUN pauses the message queue while it loads the master's
+/// scene; raising an event in that window wedges the join/scene-sync handshake and hangs the
+/// game on the loading screen forever (the 1.1.5 regression). Gating every send behind
+/// <c>PhotonNetwork.IsMessageQueueRunning</c> — and the stat sends behind
+/// <c>RunIsLevel()</c>, since these four stats only matter in an actual level — keeps the
+/// bridge completely dormant through every connect, region-select, lobby and loading screen.
 ///
 /// Security mirrors the game's OwnerOnlyRPC: the receiver resolves the player from the
 /// Photon actor number of the event's SENDER, so a payload can never speak for another
-/// player. On a host without Improve the event code is simply never handled — exactly
-/// today's behavior, silently.
+/// player. On a host without Improve the event code is simply never handled.
 /// </summary>
 internal static class NetworkBridge
 {
@@ -46,6 +52,7 @@ internal static class NetworkBridge
     private static readonly float[] PerLevel = { 0.2f, 1f, 0.3f, 1f };
 
     private static bool _initialized;
+    private static bool _subscribed;
     private static float _nextTick;
 
     // ── Sender state (this machine is a non-master client) ──
@@ -57,37 +64,79 @@ internal static class NetworkBridge
 
     private sealed class AppliedStat
     {
-        public Object? component;   // instance we applied to — a new spawn resets the baseline
-        public float baseValue;     // the player's value without our bonus
-        public float lastWritten;   // exactly what we last wrote (base + bonus)
+        public UnityEngine.Object? component;   // instance we applied to — a new spawn resets the baseline
+        public float baseValue;                 // the player's value without our bonus
+        public float lastWritten;               // exactly what we last wrote (base + bonus)
     }
 
     internal static void Initialize()
     {
-        if (_initialized) return;
-        PhotonNetwork.NetworkingClient.EventReceived += OnEvent;
         _initialized = true;
+        TrySubscribe();
     }
 
     internal static void Shutdown()
     {
-        if (!_initialized) return;
-        PhotonNetwork.NetworkingClient.EventReceived -= OnEvent;
         _initialized = false;
+        try
+        {
+            if (_subscribed && PhotonNetwork.NetworkingClient != null)
+                PhotonNetwork.NetworkingClient.EventReceived -= OnEvent;
+        }
+        catch { /* shutting down */ }
+        _subscribed = false;
+    }
+
+    // Subscribe lazily and defensively: at plugin Awake the Photon client may not exist yet,
+    // and a throw there would abort Improve's Harmony patch registration entirely.
+    private static void TrySubscribe()
+    {
+        if (_subscribed || !_initialized) return;
+        try
+        {
+            if (PhotonNetwork.NetworkingClient != null)
+            {
+                PhotonNetwork.NetworkingClient.EventReceived += OnEvent;
+                _subscribed = true;
+            }
+        }
+        catch { /* try again next tick */ }
+    }
+
+    /// <summary>
+    /// The ONLY state in which the bridge may touch Photon. IsMessageQueueRunning is false
+    /// while PUN loads a synced scene on join — raising events then hangs the loading screen.
+    /// </summary>
+    private static bool SafeToNetwork()
+    {
+        return PhotonNetwork.InRoom
+            && PhotonNetwork.IsMessageQueueRunning
+            && SemiFunc.IsMultiplayer();
     }
 
     /// <summary>Called every frame from the plugin; does real work at most twice a second.</summary>
     internal static void Update()
     {
-        if (Time.unscaledTime < _nextTick) return;
-        _nextTick = Time.unscaledTime + TickInterval;
-
         try
         {
+            TrySubscribe();
+
+            if (!PhotonNetwork.InRoom)
+            {
+                // Left the room — forget everything and force a fresh broadcast on next join.
+                _lastSent[0] = _lastSent[1] = _lastSent[2] = _lastSent[3] = -1;
+                if (_desired.Count > 0) _desired.Clear();
+                if (_applied.Count > 0) _applied.Clear();
+                return;
+            }
+
+            if (Time.unscaledTime < _nextTick) return;
+            _nextTick = Time.unscaledTime + TickInterval;
+
             SenderTick();
             ReceiverTick();
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
             Improve.Logger.LogDebug($"NetworkBridge tick skipped: {ex.Message}");
         }
@@ -101,9 +150,9 @@ internal static class NetworkBridge
 
     private static void SenderTick()
     {
-        if (!PhotonNetwork.InRoom || PhotonNetwork.IsMasterClient)
+        // Only a non-master client, only in an actual level, only with the queue running.
+        if (!SafeToNetwork() || PhotonNetwork.IsMasterClient || !SemiFunc.RunIsLevel())
         {
-            // Re-broadcast on the next join — the master's cache from a previous room is gone.
             _lastSent[0] = _lastSent[1] = _lastSent[2] = _lastSent[3] = -1;
             return;
         }
@@ -131,31 +180,33 @@ internal static class NetworkBridge
 
     private static void OnEvent(EventData photonEvent)
     {
-        if (photonEvent.Code != EventCode) return;
-        if (!PhotonNetwork.IsMasterClient) return;
-        if (photonEvent.CustomData is not object[] data || data.Length < 5) return;
-        if (data[0] is not string magic || magic != Magic) return;
-
-        var levels = new int[4];
-        for (int i = 0; i < 4; i++)
+        try
         {
-            if (data[i + 1] is not int lvl) return;
-            levels[i] = Mathf.Max(0, lvl);
-        }
+            if (photonEvent.Code != EventCode) return;
+            if (!PhotonNetwork.IsMasterClient) return;
+            if (photonEvent.CustomData is not object[] data || data.Length < 5) return;
+            if (data[0] is not string magic || magic != Magic) return;
 
-        // Keyed by the SENDER's actor number — an event can only ever affect its own player.
-        _desired[photonEvent.Sender] = levels;
+            var levels = new int[4];
+            for (int i = 0; i < 4; i++)
+            {
+                if (data[i + 1] is not int lvl) return;
+                levels[i] = Mathf.Max(0, lvl);
+            }
+
+            // Keyed by the SENDER's actor number — an event can only ever affect its own player.
+            _desired[photonEvent.Sender] = levels;
+        }
+        catch (Exception ex)
+        {
+            Improve.Logger.LogDebug($"NetworkBridge event ignored: {ex.Message}");
+        }
     }
 
     private static void ReceiverTick()
     {
-        if (!PhotonNetwork.InRoom)
-        {
-            _desired.Clear();
-            _applied.Clear();
-            return;
-        }
-        if (!PhotonNetwork.IsMasterClient || _desired.Count == 0) return;
+        if (!SafeToNetwork() || !PhotonNetwork.IsMasterClient) return;
+        if (!SemiFunc.RunIsLevel() || _desired.Count == 0) return;
         if (GameDirector.instance == null) return;
 
         foreach (var pair in _desired)
@@ -215,7 +266,7 @@ internal static class NetworkBridge
         applied.lastWritten = StatGet(avatar, stat); // read back — Launch rounds to int
     }
 
-    private static Object? StatComponent(PlayerAvatar avatar, int stat) => stat switch
+    private static UnityEngine.Object? StatComponent(PlayerAvatar avatar, int stat) => stat switch
     {
         0 or 2 => avatar.physGrabber,
         1 => avatar.tumble,
