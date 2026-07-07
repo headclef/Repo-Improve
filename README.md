@@ -119,15 +119,11 @@ Save data is stored separately at:
 
 - Each player tracks their own haul and stat allocations **independently** (client-side save). Your numbers are always your own — the host's allocations never mix into yours.
 - Only haul earned during levels you participate in counts — no credit for joining a high-haul session midway.
+- Fully client-side and safe in any lobby — Improve only ever reads and boosts your own local player, and never writes networked state.
 
-**Playing as a client (not the host):** R.E.P.O. simulates some stats on the host's machine, so they split into two groups:
+**As the host or in single player,** every stat applies normally.
 
-| Stats | Work when you are a client? |
-| ----- | --------------------------- |
-| Health, Sprint Speed, Stamina, Extra Jump, Grab Range, Tumble Climb, Crouch Rest, Map Player Count, Death Head Battery | ✅ Always — these are read on your own machine |
-| Grab Strength, Tumble Launch, Throw, Tumble Wings | ✅ If the **host also has Improve installed** — your totals are carried over a small network bridge and applied to your character on the host's simulation. ❌ Silently inactive otherwise (the game computes grab/launch/throw physics on the host only, and its stat-writing RPCs are host-only by design) |
-
-The bridge only ever speaks for the sending player (it mirrors the game's own owner-only RPC checks), never touches the host's dictionaries or save file, and needs no configuration — install Improve on both sides and it just works. As the host or in single player, everything works with no requirements.
+**As a co-op client (not the host),** most stats apply on your own machine and work as expected: Health, Sprint Speed, Stamina, Extra Jump, Grab Range, Tumble Climb, Crouch Rest, Map Player Count and Death Head Battery. A few — **Grab Strength, Tumble Launch, Throw and Tumble Wings** — are simulated by R.E.P.O. on the *host's* machine from the host's copy of your character, so a client-side mod cannot make them take effect for you (the game's stat-writing RPCs are host-only by design). They still apply in single player and when you host.
 
 ## Compatibility
 
@@ -142,7 +138,6 @@ The bridge only ever speaks for the sending player (it mirrors the game's own ow
 ├── Improve.cs                      # Plugin entry point & config
 ├── SaveData.cs                     # Persistent save data & level calculations
 ├── ImproveMenu.cs                  # MenuLib UI — progress & skill panels
-├── NetworkBridge.cs                # Co-op bridge for host-simulated stats
 ├── Patches/
 │   └── ImprovePatch.cs             # Haul capture & stat application hooks
 └── README.md

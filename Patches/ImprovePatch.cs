@@ -93,27 +93,18 @@ internal static class StatApplyPatch
     }
 
     /// <summary>
-    /// On any scene switch, just stop our coroutines — PlayerAdd restarts them in the next
-    /// scene (the avatar is recreated every scene). We deliberately KEEP the per-run
-    /// tracking (_appliedBase / _appliedDelta): the next scene reconciles against it,
+    /// When leaving a level, just stop our coroutines. We deliberately KEEP the per-run
+    /// tracking (_appliedBase / _appliedDelta): the next level reconciles against it,
     /// which both prevents re-stacking our bonus AND folds in any shop purchase made
-    /// between levels. The network bridge drops its per-instance tracking too — the
-    /// components it applied to die with the scene.
+    /// between levels.
     /// </summary>
     [HarmonyPatch(typeof(SemiFunc), nameof(SemiFunc.OnSceneSwitch))]
     [HarmonyPrefix]
     private static void OnSceneSwitch_Prefix()
     {
-        try
-        {
-            StopWatchdog();
-            StopDeferredApply();
-            NetworkBridge.OnSceneSwitch();
-        }
-        catch (System.Exception ex)
-        {
-            Improve.Logger.LogWarning($"OnSceneSwitch hook skipped: {ex.Message}");
-        }
+        if (!SemiFunc.RunIsLevel()) return;
+        StopWatchdog();
+        StopDeferredApply();
     }
 
     /// <summary>

@@ -12,7 +12,7 @@ public class Improve : BaseUnityPlugin
 {
     private const string PluginGuid = "headclef.Improve";
     private const string PluginName = "Improve";
-    private const string PluginVersion = "1.1.6";
+    private const string PluginVersion = "1.1.7";
 
     internal static Improve Instance { get; private set; } = null!;
     internal new static ManualLogSource Logger => Instance._logger;
@@ -32,7 +32,6 @@ public class Improve : BaseUnityPlugin
         BindConfiguration();
         SaveData.Initialize();
         ImproveMenu.Initialize();
-        NetworkBridge.Initialize();
 
         Harmony ??= new Harmony(Info.Metadata.GUID);
         Harmony.PatchAll();
@@ -40,14 +39,8 @@ public class Improve : BaseUnityPlugin
         Logger.LogInfo($"{Info.Metadata.GUID} v{Info.Metadata.Version} has loaded!");
     }
 
-    private void Update()
-    {
-        NetworkBridge.Update();
-    }
-
     private void OnDestroy()
     {
-        NetworkBridge.Shutdown();
         Harmony?.UnpatchSelf();
     }
 
