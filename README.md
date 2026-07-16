@@ -137,6 +137,7 @@ Save data is stored separately at:
 ```
 ├── Improve.cs                      # Plugin entry point & config
 ├── SaveData.cs                     # Persistent save data & level calculations
+├── StatEffectApplier.cs            # Co-op client — tops live components up to the full value
 ├── ImproveMenu.cs                  # MenuLib UI — progress & skill panels
 ├── Patches/
 │   └── ImprovePatch.cs             # Haul capture & stat application hooks

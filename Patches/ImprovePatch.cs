@@ -97,6 +97,14 @@ internal static class StatApplyPatch
     /// tracking (_appliedBase / _appliedDelta): the next level reconciles against it,
     /// which both prevents re-stacking our bonus AND folds in any shop purchase made
     /// between levels.
+    ///
+    /// We do NOT invalidate <see cref="StatEffectApplier"/> here: R.E.P.O. keeps the same
+    /// PlayerController alive across truck↔level scene switches within a run, so its live
+    /// fields still carry the client-side bonus. Wiping the applier's tracking while the
+    /// avatar survives would make the next tick re-add the bonus onto a field that already
+    /// has it — doubling Sprint/Stamina/Grab Range on every "leave and re-enter". The applier
+    /// reconciles against the live field itself and re-baselines only when the avatar instance
+    /// actually changes (a genuine fresh spawn), so no scene-switch reset is needed.
     /// </summary>
     [HarmonyPatch(typeof(SemiFunc), nameof(SemiFunc.OnSceneSwitch))]
     [HarmonyPrefix]
@@ -119,6 +127,7 @@ internal static class StatApplyPatch
     {
         StopWatchdog();
         StopDeferredApply();
+        StatEffectApplier.Invalidate();
         SaveData.ClearTracking();
         SaveData.MarkHaulBaselineStale();
     }
@@ -157,7 +166,11 @@ internal static class StatApplyPatch
         _deferredApply = null;
         if (!SemiFunc.RunIsLevel()) yield break;
 
-        try { SaveData.ApplyStats(); }  // idempotent reconcile — correct whether first apply or re-apply
+        try
+        {
+            SaveData.ApplyStats();       // idempotent reconcile of the dictionaries
+            StatEffectApplier.Apply();   // co-op client only: top the live components up to full
+        }
         catch (System.Exception ex) { Improve.Logger.LogWarning($"Deferred apply skipped: {ex.Message}"); }
     }
 
@@ -191,6 +204,7 @@ internal static class StatApplyPatch
             try
             {
                 SaveData.EnforceStats();
+                StatEffectApplier.Apply(); // co-op client only: keep the live components at full
                 SaveData.BankRunHaul(); // also bank in-level, so the final map isn't lost if its scene switch is missed
             }
             catch (System.Exception ex) { Improve.Logger.LogWarning($"Watchdog tick skipped: {ex.Message}"); }
