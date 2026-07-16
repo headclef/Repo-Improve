@@ -1,10 +1,11 @@
 {
     "name": "Improve",
-    "version_number": "1.1.9",
+    "version_number": "1.2.0",
     "website_url": "https://github.com/headclef/Repo-Improve",
     "description": "A leveling system that awards stat points from your lifetime haul, with a square-curve cost and configurable difficulty for R.E.P.O.",
     "dependencies": [
         "BepInEx-BepInExPack-5.4.2100",
-        "nickklmao-MenuLib-2.5.1"
+        "nickklmao-MenuLib-2.5.1",
+        "headclef-Relay-1.0.0"
     ]
 }

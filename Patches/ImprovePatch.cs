@@ -128,6 +128,7 @@ internal static class StatApplyPatch
         StopWatchdog();
         StopDeferredApply();
         StatEffectApplier.Invalidate();
+        RelayReporter.Clear();
         SaveData.ClearTracking();
         SaveData.MarkHaulBaselineStale();
     }
@@ -185,14 +186,8 @@ internal static class StatApplyPatch
         _watchdog = Improve.Instance.StartCoroutine(WatchdogLoop());
     }
 
-    /// <summary>
-    /// Stops the watchdog. Also tears the bridge down: the watchdog is the only thing that
-    /// drives it, so leaving the subscription up here would keep Improve listening on Photon
-    /// outside a level — exactly the state that wedged the connect flow in 1.1.5.
-    /// </summary>
     private static void StopWatchdog()
     {
-        NetworkBridge.Teardown();
         if (_watchdog != null)
         {
             Improve.Instance.StopCoroutine(_watchdog);
@@ -211,14 +206,13 @@ internal static class StatApplyPatch
             {
                 SaveData.EnforceStats();
                 StatEffectApplier.Apply(); // co-op client only: keep the live components at full
-                NetworkBridge.Tick();      // opt-in: the four host-simulated stats
+                RelayReporter.Report();    // hand the host-simulated stats to Relay
                 SaveData.BankRunHaul(); // also bank in-level, so the final map isn't lost if its scene switch is missed
             }
             catch (System.Exception ex) { Improve.Logger.LogWarning($"Watchdog tick skipped: {ex.Message}"); }
             yield return new WaitForSeconds(0.5f);
         }
 
-        NetworkBridge.Teardown();
         _watchdog = null;
     }
 }

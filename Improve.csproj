@@ -5,7 +5,7 @@
     <LangVersion>12</LangVersion>
     <Nullable>enable</Nullable>
     <Authors>headclef</Authors>
-    <Version>1.1.9</Version>
+    <Version>1.2.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -34,6 +34,14 @@
     <PackageReference Include="R.E.P.O.GameLibs.Steam" Version="*-*" PrivateAssets="all" />
 
     <PackageReference Include="Nickklmao-MenuLib" Version="2.*" />
+  </ItemGroup>
+
+  <!-- Reference to Relay mod (compile-only, not bundled) -->
+  <ItemGroup>
+    <Reference Include="Relay">
+      <HintPath>..\Relay\bin\Debug\netstandard2.1\Relay.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>
