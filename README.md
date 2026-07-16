@@ -104,30 +104,67 @@ Settings are in `BepInEx/config/headclef.Improve.cfg` or in the **in-game mod co
 Save data is stored separately at:
 `%AppData%/../LocalLow/semiwork/Repo/REPOModData/Improve/save.cfg`
 
+### Upgrading from 1.1.9 — the bridge setting moved
+
+**If you turned on `Host-Simulated Stat Bridge` in 1.1.9, you must turn it on again in Relay — it is no longer read from Improve's config.**
+
+1.1.9 carried its own co-op bridge and its own switch. 1.2.0 moves both into [Relay](https://github.com/headclef/Repo-Relay), so that Berserk can use the same bridge without depending on Improve, and so that only **one** mod ever writes those stats (two would corrupt each other — see Relay's readme).
+
+| | 1.1.9 | 1.2.0 |
+|---|---|---|
+| File | `BepInEx/config/headclef.Improve.cfg` | `BepInEx/config/headclef.Relay.cfg` |
+| Section | `[Multiplayer]` | `[Multiplayer]` |
+| Key | `Host-Simulated Stat Bridge` | `Enabled` |
+
+Nothing migrates automatically, and **nothing warns you** — the old key is simply not read any more, so a bridge you had switched on will silently stop working until you switch Relay's on. As before, it must be on for **both** you and the host.
+
+The old `[Multiplayer]` section may linger in `headclef.Improve.cfg`; it is inert and you can ignore or delete it. Every other Improve setting is unchanged, and your save data, haul and allocations are untouched.
+
 ## Requirements
 
 - [BepInEx 5.x](https://github.com/BepInEx/BepInEx) installed for R.E.P.O.
+- [MenuLib](https://thunderstore.io/c/repo/p/nickklmao/MenuLib/) — for the in-game menu.
+- **[Relay](https://github.com/headclef/Repo-Relay) — required as of 1.2.0.** Improve will not load without it. Thunderstore installs it for you; if you install manually, install Relay too.
 
 ## Installation
 
-1. Install via **Thunderstore** (recommended).
-2. Or manually: place `Improve.dll` into your `BepInEx/plugins` folder.
+1. Install via **Thunderstore** (recommended) — Relay and MenuLib come with it.
+2. Or manually: place `Improve.dll` into your `BepInEx/plugins` folder, along with `Relay.dll` and MenuLib.
 3. Launch the game — save file is created automatically.
 4. Open the **Improve** button in the main menu to start spending points.
+5. Playing as a **co-op client** and want Grab Strength, Tumble Launch, Throw or Tumble Wings to work? Turn on Relay's switch — see [Multiplayer](#multiplayer).
 
 ## Multiplayer
 
 - Each player tracks their own haul and stat allocations **independently** (client-side save). Your numbers are always your own — the host's allocations never mix into yours.
 - Only haul earned during levels you participate in counts — no credit for joining a high-haul session midway.
-- Fully client-side and safe in any lobby — Improve only ever reads and boosts your own local player, and never writes networked state.
+- Safe in any lobby — Improve only ever boosts your own player, never anyone else's.
 
-**As the host or in single player,** every stat applies normally.
+**As the host or in single player, every stat applies normally.** Nothing below matters to you.
 
-**As a co-op client (not the host),** most stats apply on your own machine and work as expected: Health, Sprint Speed, Stamina, Extra Jump, Grab Range, Tumble Climb, Crouch Rest, Map Player Count and Death Head Battery.
+### As a co-op client
 
-A few — **Grab Strength, Tumble Launch, Throw and Tumble Wings** — are simulated by R.E.P.O. on the *host's* machine from the host's copy of your character, so nothing a client writes locally can reach them (the game's stat-writing RPCs are host-only by design). They always apply in single player and when you host.
+R.E.P.O. splits your stats by *which machine reads them*, and that split decides what a mod can do for you.
 
-As a client they reach you through **[Relay](https://github.com/headclef/Repo-Relay)**, which Improve depends on. Relay is off by default: turn its **Multiplayer → Enabled** switch on, and make sure the host runs Relay with it on too. See Relay's readme for what it does and why it ships switched off. Improve needs no setting of its own — it just reports its allocations, and Relay carries them.
+**These nine work on their own** — your game reads them from your own memory, so Improve just applies them:
+
+Health · Sprint Speed · Stamina · Extra Jump · Grab Range · Tumble Climb · Crouch Rest · Map Player Count · Death Head Battery
+
+There is a subtlety here worth knowing, because it looked like a bug for a long time: the host **overwrites your upgrade values with its own copy at every scene change**, and its copy only knows what you *bought* — it never learns about Improve. On top of that, your character reads those values exactly once, when it spawns. So simply writing your bonus back afterwards did nothing: the character had already read the old number and never looks again. Improve now applies your allocation straight to the live character instead, which is why these stats are felt from the first second of a level. This is all local — no networking is involved, and it happens whether or not you use Relay.
+
+**These four need [Relay](https://github.com/headclef/Repo-Relay):**
+
+Grab Strength · Tumble Launch · Throw · Tumble Wings
+
+The game computes these on the **host**, from the host's copy of your character — and that copy only knows your purchased upgrades. Your own machine is never asked. Worse, every message the game has for changing a stat is host-only by design, so a client cannot even ask. No client-side mod can make these four work, on its own, ever.
+
+Relay is the way around it: your client tells the host what you should have, and Relay **on the host** applies it there. Improve needs no setting of its own — it just reports your allocations, Train's trained levels included. To use it:
+
+1. **You and the host both** need Relay installed (it comes with Improve).
+2. **You and the host both** set `BepInEx/config/headclef.Relay.cfg` → `[Multiplayer]` → `Enabled = true`, or use the in-game mod config menu.
+3. Against a host who has not done this, nothing happens and nothing breaks — you just keep vanilla behaviour for those four.
+
+Relay ships **off by default** because an earlier version of this bridge broke multiplayer connect outright. Please read Relay's readme before turning it on — it explains exactly what went wrong, what changed, and why the switch exists.
 
 ## Compatibility
 
