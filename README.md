@@ -100,6 +100,7 @@ Settings are in `BepInEx/config/headclef.Improve.cfg` or in the **in-game mod co
 |-----|---------|-------|-------------|
 | Difficulty Multiplier | `0.5` | 0.1–2.0 | Cost multiplier for leveling |
 | Base Cost | `1,000,000` | 100k–10M | Base cost for the first level |
+| Host-Simulated Stat Bridge | `false` | on/off | Experimental. Lets Grab Strength, Tumble Launch, Throw and Tumble Wings apply while you are a co-op client — see [Multiplayer](#multiplayer). Needs the host to run Improve with it on too. |
 
 Save data is stored separately at:
 `%AppData%/../LocalLow/semiwork/Repo/REPOModData/Improve/save.cfg`
@@ -123,7 +124,17 @@ Save data is stored separately at:
 
 **As the host or in single player,** every stat applies normally.
 
-**As a co-op client (not the host),** most stats apply on your own machine and work as expected: Health, Sprint Speed, Stamina, Extra Jump, Grab Range, Tumble Climb, Crouch Rest, Map Player Count and Death Head Battery. A few — **Grab Strength, Tumble Launch, Throw and Tumble Wings** — are simulated by R.E.P.O. on the *host's* machine from the host's copy of your character, so a client-side mod cannot make them take effect for you (the game's stat-writing RPCs are host-only by design). They still apply in single player and when you host.
+**As a co-op client (not the host),** most stats apply on your own machine and work as expected: Health, Sprint Speed, Stamina, Extra Jump, Grab Range, Tumble Climb, Crouch Rest, Map Player Count and Death Head Battery.
+
+A few — **Grab Strength, Tumble Launch, Throw and Tumble Wings** — are simulated by R.E.P.O. on the *host's* machine from the host's copy of your character, so nothing a client writes locally can reach them (the game's stat-writing RPCs are host-only by design). They always apply in single player and when you host. As a client they need the opt-in **Host-Simulated Stat Bridge** below.
+
+### Host-Simulated Stat Bridge (experimental, off by default)
+
+With this setting on, your client tells the host its levels for those four stats and Improve **on the host** applies them to the host's copy of you, which is the copy that computes the forces. It requires the host to run Improve with the same setting on; against a host without it, nothing happens and nothing breaks.
+
+It is off by default for a reason: an earlier always-on version of this bridge broke multiplayer connect — the server list would not populate and picking a region hung the game on a loading screen. That version subscribed to Photon events at plugin load and polled the network every frame; this one only ever touches Photon from inside a running level, twice a second, and stops the moment the level ends. The root cause was never conclusively proven, so the switch stays off until you choose otherwise. **With it off, Improve behaves exactly as it does without the bridge** — your other stats are unaffected either way.
+
+Your bonus never reaches the host's save: the bridge only ever writes live component values, never the stat dictionaries, and those dictionaries are the only thing R.E.P.O. serializes. The bonus dies with the component when you leave or the level ends.
 
 ## Compatibility
 
@@ -138,6 +149,7 @@ Save data is stored separately at:
 ├── Improve.cs                      # Plugin entry point & config
 ├── SaveData.cs                     # Persistent save data & level calculations
 ├── StatEffectApplier.cs            # Co-op client — tops live components up to the full value
+├── NetworkBridge.cs                # Opt-in — reports the host-simulated stats to the host
 ├── ImproveMenu.cs                  # MenuLib UI — progress & skill panels
 ├── Patches/
 │   └── ImprovePatch.cs             # Haul capture & stat application hooks
