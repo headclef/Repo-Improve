@@ -299,6 +299,25 @@ public static class SaveData
     /// then write base + currentAllocation. Idempotent and self-correcting, so it can
     /// run every level and repeatedly via the watchdog without ever double-adding.
     /// </summary>
+    // The local player's steam id, cached the first time we see it. The save-leak strip runs
+    // from a SaveGame prefix that can fire mid-transition, when PlayerController.instance is
+    // briefly null or unnamed; without a cached id the strip would bail and the bonus would be
+    // serialized into the save as if it were the base (then doubled on the next load).
+    private static string? _localSteamId;
+
+    internal static string? LocalSteamId
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(_localSteamId)) return _localSteamId;
+            if (PlayerController.instance != null && !string.IsNullOrEmpty(PlayerController.instance.playerSteamID))
+                _localSteamId = PlayerController.instance.playerSteamID;
+            else if (PlayerAvatar.instance != null && !string.IsNullOrEmpty(PlayerAvatar.instance.steamID))
+                _localSteamId = PlayerAvatar.instance.steamID;
+            return _localSteamId;
+        }
+    }
+
     public static void ApplyStats()
     {
         if (PlayerController.instance == null) return;
@@ -309,6 +328,8 @@ public static class SaveData
         // Early in a scene the controller exists but AddToStatsManagerRPC hasn't named it
         // yet — a null key would throw inside the dictionaries and poison the tracking.
         if (string.IsNullOrEmpty(steamId)) return;
+
+        _localSteamId = steamId;   // remember it for the strip, which may run when instance is null
 
         foreach (string stat in AllStatNames)
         {
@@ -330,6 +351,20 @@ public static class SaveData
             else
             {
                 baseVal = cur;  // first reconcile this run — current value is the base
+
+                // Diagnostic: a first-sight reconcile whose "base" already equals the bonus we
+                // are about to add is the doubling signature — the dict came in pre-boosted
+                // (a leaked save), and we are about to stack the bonus on top. Log it loudly so
+                // a single repro pins the frame instead of guessing.
+                //
+                // Host/singleplayer only: the leak lives in the local .es3 save, which only the
+                // host loads. On a co-op client the base is whatever the host synced over the
+                // dict (purchased upgrades), so base >= our allocation is perfectly normal and
+                // would fire this as a harmless false positive on every progressed character.
+                if (alloc > 0 && baseVal >= alloc && SemiFunc.IsMasterClientOrSingleplayer())
+                    Improve.Logger.LogWarning(
+                        $"Possible double: '{stat}' first-seen base={baseVal} already >= bonus={alloc} " +
+                        $"→ about to write {baseVal + alloc}. The loaded dict may contain a leaked bonus.");
             }
 
             _appliedBase[stat] = baseVal;
@@ -366,9 +401,14 @@ public static class SaveData
     public static void StripBonusForSave()
     {
         _strippedForSave.Clear();
-        if (PlayerController.instance == null || StatsManager.instance == null) return;
+        if (StatsManager.instance == null) return;
 
-        string steamId = PlayerController.instance.playerSteamID;
+        // Resolve the id even when PlayerController.instance is null: this prefix fires from the
+        // game's autosave, which can happen mid-transition (leaving a level for the shop, the
+        // arena, or the menu) while the player object is being torn down. The dict still holds
+        // base+bonus at that moment, so bailing here is exactly how the bonus leaks into the
+        // save and then doubles on the next load.
+        string? steamId = LocalSteamId;
         if (string.IsNullOrEmpty(steamId)) return;
 
         foreach (string stat in AllStatNames)
@@ -376,10 +416,18 @@ public static class SaveData
             if (!_appliedDelta.TryGetValue(stat, out int delta) || delta == 0) continue;
             if (!_appliedBase.TryGetValue(stat, out int baseVal)) continue;
 
-            if (ReadStatLocal(stat, steamId) == baseVal + delta)
+            if (ReadStatLocal(stat, steamId!) == baseVal + delta)
             {
-                WriteStatLocal(stat, steamId, baseVal);
+                WriteStatLocal(stat, steamId!, baseVal);
                 _strippedForSave.Add(stat);
+            }
+            else
+            {
+                // Our tracked bonus is present in the dict but the value doesn't match what we
+                // last wrote — worth knowing, because a save taken here keeps our bonus.
+                Improve.Logger.LogWarning(
+                    $"Strip skipped '{stat}': dict={ReadStatLocal(stat, steamId!)} != base+delta={baseVal + delta}. " +
+                    $"Save may keep the bonus.");
             }
         }
     }
@@ -392,15 +440,14 @@ public static class SaveData
     {
         if (_strippedForSave.Count == 0) return;
 
-        if (PlayerController.instance != null && StatsManager.instance != null &&
-            !string.IsNullOrEmpty(PlayerController.instance.playerSteamID))
+        string? steamId = LocalSteamId;
+        if (StatsManager.instance != null && !string.IsNullOrEmpty(steamId))
         {
-            string steamId = PlayerController.instance.playerSteamID;
             foreach (string stat in _strippedForSave)
             {
                 if (_appliedBase.TryGetValue(stat, out int baseVal) &&
                     _appliedDelta.TryGetValue(stat, out int delta))
-                    WriteStatLocal(stat, steamId, baseVal + delta);
+                    WriteStatLocal(stat, steamId!, baseVal + delta);
             }
         }
 
